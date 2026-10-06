@@ -4,7 +4,7 @@ An Android package that runs aMule's native daemon on the phone and presents aMu
 
 | Item | Current status |
 |---|---|
-| Android app | Version 0.1, debug build |
+| Android app | Version 0.1.1, debug build |
 | Supported ABI | `arm64-v8a` only |
 | Minimum Android API | 33 (Android 13) |
 | Target Android API | 35 |
@@ -39,7 +39,7 @@ Both programs run under an Android foreground service. Android displays a persis
 
 The WebView talks to the local API over HTTP on `127.0.0.1`; the Android manifest permits cleartext traffic for this local connection. The API itself is configured to listen only on loopback.
 
-aMule's configuration, incomplete files (`Temp`) and original completed files (`Incoming`) live in app-private storage. Completed files are copied to the shared `Downloads/aMule/Complete/` folder so they are accessible from Android file managers; the copy does not move or remove the original.
+aMule's configuration, incomplete files (`Temp`) and active downloads live in app-private storage. When a download completes, the app publishes and verifies it in the shared `Downloads/aMule/Complete/` folder, adds that folder to aMule's shared directories, then removes the private original and refreshes aMule's share list. The private and shared copies coexist only during the transfer; if publishing or sharing the destination fails, the original is kept.
 
 The app packages the responsive aMule Web UI with small mobile layout and chart-label adjustments. The phone displays it in a WebView.
 
@@ -51,7 +51,7 @@ The included core build has IPv6, UPnP, IP geolocation, uTP, QUIC and aMule's na
 - Keeps the daemon running in the foreground service when the screen is closed.
 - Shows the Web UI areas available in aMule's web client: Networks, Searches, Downloads, Shared files, Clients, Messages, Statistics, Preferences and About.
 - Uses the aMule Web UI for configuration; settings shown there are those implemented by the Web API.
-- Copies completed files from aMule's private Incoming directory to `Downloads/aMule/Complete/` on supported Android versions (API 33 and later). The original remains in Incoming for sharing. The exported copy uses additional storage space.
+- Moves completed files from aMule's private Incoming directory to `Downloads/aMule/Complete/` on supported Android versions (API 33 and later), then keeps that folder in aMule's shared-directory list so completed files remain available for sharing.
 - Includes tested layout adjustments for short landscape screens and Kad graph labels.
 
 Network reachability depends on the user's network and port-forwarding setup, as with aMule generally.

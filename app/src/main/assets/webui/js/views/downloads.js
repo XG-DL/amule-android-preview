@@ -127,7 +127,7 @@ export default function Downloads({ isGuest }) {
   // Same endpoint scoped to one hash, for the detail panel's Clear button.
   const clearOne = (h) => mutate(() => api.post("downloads_clear_completed", { hash: h }));
   // Row-level clear for a completed download: confirm, then drop it from the
-  // completed list (the file in Incoming is untouched).
+  // completed list (the shared file in Downloads is untouched).
   const clearRow = async (d) => {
     if (!(await confirmDialog(t("downloads_confirm_clear_this", { name: d.name })))) return;
     clearOne(d.hash);
@@ -193,7 +193,7 @@ export default function Downloads({ isGuest }) {
         // A completed download awaiting clear has no partfile to pause or cancel
         // (DELETE /downloads/{hash} returns 409). Offer Clear instead, like the
         // detail panel: it drops the entry from the completed list without
-        // touching the finished file in Incoming.
+        // touching the finished file in shared Downloads.
         if (d.status === "completed")
           return html`
             <button class="btn btn-icon btn-sm" title=${t("downloads_clear_this")} onClick=${() => clearRow(d)}>

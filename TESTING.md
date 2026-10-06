@@ -24,9 +24,9 @@ This records manual checks of the Android preview build and the areas still awai
 - Mobile layout in short landscape orientation and Kad chart labels.
 - Recent Android log checked for FATAL and ANR entries; none were found in the checked log window.
 
-## Observed result
+## Observed result from the earlier copy-based build
 
-The service started the daemon/API and the UI was reachable. The download completed and appeared under `Downloads/aMule/Complete/`; the original remained in aMule's Incoming directory. Stop ended the native processes, and a later app launch started them again. The short-landscape pane layout and chart spacing changes appeared as intended in the observed screens.
+The service started the daemon/API and the UI was reachable. The download completed and appeared under `Downloads/aMule/Complete/`; the original remained in aMule's Incoming directory. That test predates the move-and-share change documented in the README. Stop ended the native processes, and a later app launch started them again. The short-landscape pane layout and chart spacing changes appeared as intended in the observed screens.
 
 The network test showed eD2k Low ID and firewalled Kad. uTP was disabled in the Android binary, so this run could not observe or verify uTP. The Low ID and firewalled status describe the network conditions in this test.
 
@@ -39,6 +39,7 @@ The network test showed eD2k Low ID and firewalled Kad. uTP was disabled in the 
 - Sustained transfer, multiple simultaneous transfers, pause/resume, and sharing after export.
 - uTP operation or a uTP stream across a live port change; uTP was disabled in this Android binary.
 - Reproducible build from a clean checkout and independent installation/testing by another person.
+- The newer move-and-share flow, including old-copy migration, aMule's shared-directory registration and the refreshed Shared Files list; it has built successfully but has not yet been re-tested on the phone.
 
 ## Suggested reviewer checklist
 
@@ -46,6 +47,6 @@ The network test showed eD2k Low ID and firewalled Kad. uTP was disabled in the 
 2. Install on a supported ARM64 device and confirm startup, loopback Web API access and the foreground-service notification.
 3. Start a transfer, leave the app, lock the device, and check that the transfer continues as expected.
 4. Stop and restart from the notification and confirm there are no orphan native processes.
-5. Complete a small transfer and verify the exported copy and original shared file.
+5. Complete a small transfer and verify the file is available under `Downloads/aMule/Complete/`, the private Incoming original is removed, and the file remains visible in aMule's Shared Files list.
 6. Try the main controls and preferences, recording any settings that are unsupported or unsafe on a phone.
 7. Inspect logs and network bindings, ensuring the Web API is not exposed beyond loopback by default.

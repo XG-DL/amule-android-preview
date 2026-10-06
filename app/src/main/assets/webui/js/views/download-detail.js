@@ -177,7 +177,7 @@ function DetailActions({ d, isGuest, categories, onPatch, onDelete, onClear }) {
   const inactive = d.status === "paused" || d.status === "stopped";
   const canStop = d.status !== "stopped" && d.status !== "completed" && d.status !== "completing";
   // Completed rejects DELETE (409 download_completed): offer Clear. `done` also
-  // gates the download link — only a completed file is in Incoming (shared), so
+  // gates the download link — only a completed file is in the shared directory, so
   // only then does its hash resolve under shared/{hash}/content.
   const done = d.status === "completed";
 
@@ -321,4 +321,3 @@ function DownloadFilenames({ hash, name, onRenamed }) {
         </table>` : html`<${Placeholder} kind="info">${t("filename_none")}<//>`}
     </div>`;
 }
-
