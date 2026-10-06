@@ -1,0 +1,271 @@
+diff --git a/src/OtherFunctions.cpp b/src/OtherFunctions.cpp
+index 0011dba8f..13fff1f7d 100644
+--- a/src/OtherFunctions.cpp
++++ b/src/OtherFunctions.cpp
+@@ -46,7 +46,10 @@
+ #include "OtherFunctions.h" // Interface declarations
+ 
+ #include <clocale> // Needed for setlocale
++#include <cstdio>
++#include <cstring>
+ #include <map>
++#include <stdexcept>
+ 
+ #ifdef __WXBASE__
+ #include <cerrno>
+@@ -1562,19 +1565,21 @@ CMD4Hash GetPassword(bool allowEmptyPassword)
+ {
+ 	wxString pass_plain;
+ 	CMD4Hash password;
+-#ifndef __WINDOWS__
++#if !defined(__WINDOWS__) && !defined(__ANDROID__)
+ 	pass_plain = char2unicode(getpass("Enter password for mule connection: "));
+ #else
+ 	// #warning This way, pass enter is not hidden on windows. Bad thing.
+-	char temp_str[512];
++	char temp_str[512] = {};
+ 	// Though fflush() on an input stream is undefined behaviour by the standard, the MSVCRT version
+ 	// does seem to clear the input buffers.
+ 	// cppcheck-suppress fflushOnInputStream
+ 	fflush(stdin);
+ 	printf("Enter password for mule connection: \n");
+ 	fflush(stdout);
+-	fgets(temp_str, 512, stdin);
+-	temp_str[strlen(temp_str) - 1] = '\0';
++	if (!fgets(temp_str, sizeof(temp_str), stdin)) {
++		throw std::runtime_error("Could not read password from standard input");
++	}
++	temp_str[strcspn(temp_str, "\r\n")] = '\0';
+ 	pass_plain = char2unicode(temp_str);
+ #endif
+ 	wxCHECK2(password.Decode(MD5Sum(pass_plain).GetHash()), /* Do nothing. */);
+diff --git a/src/amule.cpp b/src/amule.cpp
+index 67ca30bbf..7e4058db7 100644
+--- a/src/amule.cpp
++++ b/src/amule.cpp
+@@ -29,6 +29,11 @@
+ 
+ #include <csignal>
+ #include <cstring>
++#ifdef __ANDROID__
++#include <dirent.h>
++#include <fstream>
++#include <string>
++#endif
+ #include <set> // Needed for std::set (OnVerifyLocalDataFinished)
+ #include <wx/process.h>
+ #include <wx/sstream.h>
+@@ -662,6 +667,46 @@ bool CamuleApp::OnInit()
+ 	const wxLongLong prefsStart = wxGetUTCTimeMillis();
+ #endif
+ 	glob_prefs = new CPreferences();
++#ifdef __ANDROID__
++	// Android's system CA certificates are stored as individual DER files. The
++	// bundled libcurl/OpenSSL build needs them combined into a PEM bundle.
++	{
++		wxString configuredBundle;
++		if (!wxGetEnv("CURL_CA_BUNDLE", &configuredBundle) || configuredBundle.IsEmpty()) {
++			const wxString bundlePath = thePrefs::GetConfigDir() + "android-ca-bundle.pem";
++			const Unicode2CharBuf bundlePathUtf8 = unicode2char(bundlePath);
++			std::ofstream bundle(static_cast<const char *>(bundlePathUtf8), std::ios::binary | std::ios::trunc);
++			DIR *certDir = opendir("/system/etc/security/cacerts");
++			bool complete = bundle.is_open() && certDir;
++			if (complete) {
++				while (dirent *entry = readdir(certDir)) {
++					if (entry->d_name[0] == '.') {
++						continue;
++					}
++					const std::string certPath = std::string("/system/etc/security/cacerts/") + entry->d_name;
++					std::ifstream cert(certPath, std::ios::binary);
++					if (!cert.is_open()) {
++						complete = false;
++						break;
++					}
++					bundle << cert.rdbuf() << '\n';
++					if (!bundle.good()) {
++						complete = false;
++						break;
++					}
++				}
++				closedir(certDir);
++			}
++			bundle.close();
++			if (complete && bundle.good()) {
++				wxSetEnv("CURL_CA_BUNDLE", bundlePath);
++			} else {
++				wxRemoveFile(bundlePath);
++				AddLogLineC(CFormat("Could not create Android CA bundle from %s; HTTPS downloads may fail.") % "/system/etc/security/cacerts");
++			}
++		}
++	}
++#endif
+ #ifdef AMULE_SHOW_SPLASH
+ 	const wxLongLong prefsDoneAt = wxGetUTCTimeMillis();
+ #endif
+diff --git a/src/amuled.cpp b/src/amuled.cpp
+index 6192a2409..da3e473d5 100644
+--- a/src/amuled.cpp
++++ b/src/amuled.cpp
+@@ -52,6 +52,7 @@
+ #include <wx/utils.h>
+ 
+ #include <common/LocaleInit.h>  // Needed for aMuleInitLocale()
++#include <vector>
+ #include "Preferences.h"        // Needed for CPreferences
+ #include "PartFile.h"           // Needed for CPartFile
+ #include "PartFileHashThread.h" // Needed for EVT_PARTFILE_HASH_RESULT
+@@ -181,7 +182,23 @@ int main(int argc, char **argv)
+ 		AmuledDaemonizeEarly();
+ 	}
+ #endif
+-	const int rc = wxEntry(argc, argv);
++	int rc;
++#ifdef __ANDROID__
++	// Android's iconv does not provide the multibyte-to-wchar conversion wxEntry(char**)
++	// uses while copying argv. Build wx's wide arguments directly from UTF-8 instead.
++	std::vector<wxWCharBuffer> wideArgs;
++	std::vector<wxChar *> wideArgv;
++	wideArgs.reserve(argc);
++	wideArgv.reserve(argc + 1);
++	for (int i = 0; i < argc; ++i) {
++		wideArgs.push_back(wxString::FromUTF8(argv[i]).wc_str());
++		wideArgv.push_back(const_cast<wxChar *>(wideArgs.back().data()));
++	}
++	wideArgv.push_back(nullptr);
++	rc = wxEntry(argc, wideArgv.data());
++#else
++	rc = wxEntry(argc, argv);
++#endif
+ 	// wx before 3.2.7 cannot set the status of a --configure-* run, so it is applied here.
+ 	const int configured = CamuleAppCommon::ConfigureExitCode();
+ 	return configured >= 0 ? configured : rc;
+diff --git a/src/libs/common/StringFunctions.h b/src/libs/common/StringFunctions.h
+index 03aa2e50e..ff74288df 100644
+--- a/src/libs/common/StringFunctions.h
++++ b/src/libs/common/StringFunctions.h
+@@ -58,7 +58,11 @@ Unicode2CharBuf unicode2char(const wxChar *x);
+ Unicode2CharBuf unicode2char(const Char2UnicodeBuf &x);
+ inline Unicode2CharBuf unicode2char(const wxString &x)
+ {
++#if wxUSE_UNICODE_UTF8
++	return x.utf8_str();
++#else
+ 	return unicode2char(x.wc_str());
++#endif
+ }
+ inline Char2UnicodeBuf char2unicode(const char *x)
+ {
+diff --git a/src/webapi/App.cpp b/src/webapi/App.cpp
+index c6524938c..7b97c10e0 100644
+--- a/src/webapi/App.cpp
++++ b/src/webapi/App.cpp
+@@ -43,6 +43,7 @@
+ 
+ #include <wx/cmdline.h>
+ #include <wx/log.h>
++#include <wx/utils.h>
+ 
+ #include <atomic>
+ #include <chrono>
+@@ -51,6 +52,7 @@
+ #include <cstdlib>
+ #include <iostream>
+ #include <thread>
++#include <vector>
+ 
+ // mallopt. Guarded because macOS has no <malloc.h>; M_ARENA_MAX below then
+ // gates the call on the libc actually providing it.
+@@ -60,7 +62,11 @@
+ #endif
+ #endif
+ 
++#ifdef __ANDROID__
++IMPLEMENT_APP_NO_MAIN(CamuleapiApp)
++#else
+ IMPLEMENT_APP(CamuleapiApp)
++#endif
+ 
+ namespace
+ {
+@@ -796,3 +802,22 @@ class CMuleNotiferBase;
+ void HandleNotification(const CMuleNotiferBase &) {}
+ void HandleNotificationAlways(const CMuleNotiferBase &) {}
+ } // namespace MuleNotify
++
++#ifdef __ANDROID__
++int main(int argc, char **argv)
++{
++	// Android's iconv cannot perform wxEntry(char**)'s local multibyte-to-wide
++	// argument conversion. Android process arguments are UTF-8, so convert them
++	// directly before entering wxWidgets, as the daemon does.
++	std::vector<wxWCharBuffer> wideArgs;
++	std::vector<wxChar *> wideArgv;
++	wideArgs.reserve(argc);
++	wideArgv.reserve(argc + 1);
++	for (int i = 0; i < argc; ++i) {
++		wideArgs.push_back(wxString::FromUTF8(argv[i]).wc_str());
++		wideArgv.push_back(const_cast<wxChar *>(wideArgs.back().data()));
++	}
++	wideArgv.push_back(nullptr);
++	return wxEntry(argc, wideArgv.data());
++}
++#endif
+diff --git a/src/webapi/static/css/app.css b/src/webapi/static/css/app.css
+index 33caa0657..ec13f72a5 100644
+--- a/src/webapi/static/css/app.css
++++ b/src/webapi/static/css/app.css
+@@ -750,6 +750,15 @@ table.data.virtual td.name .name-select { width: 100%; max-width: 100%; }
+   display: flex; flex-direction: column;
+ }
+ 
++/* Keep both halves of the splitter usable on short landscape displays. The
++   inline detail height is persisted in CSS pixels; on a phone held sideways
++   the desktop breakpoint can be active even though the viewport is too short
++   for that stored height. Reserve room above for the table and its controls. */
++@media (max-height: 600px) and (min-width: 861px) {
++  .net-split .net-pane:last-child,
++  .split-bottom { max-height: calc(100% - 220px); }
++}
++
+ /* selected-for-detail row: accent left edge (mirrors .connected) */
+ .row-active td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+ .row-active, .row-active:hover { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+diff --git a/src/webapi/static/js/charts.js b/src/webapi/static/js/charts.js
+index 9d4a81078..00b11fd44 100644
+--- a/src/webapi/static/js/charts.js
++++ b/src/webapi/static/js/charts.js
+@@ -137,7 +137,6 @@ function draw(cv, g, [xs, ...series], hover) {
+   const ys = series[0];
+   // y scale: 0 .. max*1.05, ticks on a nice step (shared by every series)
+   const yMax = Math.max(1, Math.max(...series.map((s) => Math.max(...s))) * 1.05);
+-  const step = Math.max(1, niceStep(yMax / 4)); // values are integer counts/B·s⁻¹
+ 
+   // Axis unit: charts with `g.axis` (speeds) pick ONE unit for the whole axis so
+   // ticks are bare numbers with the unit shown once; others keep g.fmt per tick.
+@@ -149,8 +148,16 @@ function draw(cv, g, [xs, ...series], hover) {
+     const raw = s >= 100 ? s.toFixed(0) : s >= 10 ? s.toFixed(1) : s.toFixed(2);
+     return raw.indexOf(".") < 0 ? raw : raw.replace(/\.?0+$/, "");
+   };
++
++  // Keep tick labels legible in short panels (notably Kad on a phone in
++  // landscape) by choosing a tick step from the available vertical space.
++  const y0 = axis ? PAD_TOP + 15 : PAD_TOP;
++  const y1 = h - GUTTER_BOTTOM;
++  const maxIntervals = Math.max(1, Math.floor((y1 - y0) / 26));
++  const step = Math.max(1, niceStep(yMax / maxIntervals)); // values are integer counts/B·s⁻¹
+   const ticks = [];
+   for (let v = 0; v <= yMax; v += step) ticks.push([v, tickLabel(v)]);
++  if (!ticks.length || ticks[ticks.length - 1][0] < yMax) ticks.push([yMax, tickLabel(yMax)]);
+ 
+   // Left gutter sized to the widest label (+ 6px gap + 6px margin) instead of a
+   // fixed width, so short numeric axes don't waste horizontal space.
+@@ -158,9 +165,6 @@ function draw(cv, g, [xs, ...series], hover) {
+   for (const [, label] of ticks) labelW = Math.max(labelW, ctx.measureText(label).width);
+   const x0 = Math.ceil(labelW) + 12;
+   const x1 = cssW - PAD_RIGHT;
+-  // reserve a line at the top for the unit caption when present
+-  const y0 = axis ? PAD_TOP + 15 : PAD_TOP;
+-  const y1 = h - GUTTER_BOTTOM;
+   const sx = (i) => x0 + (n < 2 ? 0 : (i / (n - 1)) * (x1 - x0));
+   const sy = (v) => y1 - (v / yMax) * (y1 - y0);
+ 

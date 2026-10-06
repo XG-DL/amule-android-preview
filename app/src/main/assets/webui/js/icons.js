@@ -1,0 +1,70 @@
+// Inline SVG icon set. Monochrome line icons (stroke="currentColor") so they
+// inherit the surrounding text colour and the active theme. No external
+// assets — everything is inlined, which keeps the strict CSP happy.
+//
+//   import { Icon } from "../icons.js";
+//   html`<${Icon} name="downloads" />`
+//   html`<${Icon} name="connect" size=${16} title="Connect" />`
+
+import { html } from "./dom.js";
+
+// Each entry returns fresh vnodes (a function, not a shared vnode) so the same
+// icon can be rendered in many places at once without preact reusing nodes.
+const ICONS = {
+  // --- navigation -------------------------------------------------------
+  networks: () => html`<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>`,
+  downloads: () => html`<path d="M12 3v10"/><path d="M8 9l4 4 4-4"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/>`,
+  search: () => html`<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>`,
+  shared: () => html`<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96 12 12.01l8.73-5.05"/><line x1="12" y1="22.08" x2="12" y2="12"/>`,
+  clients: () => html`<circle cx="12" cy="7" r="3.5"/><path d="M4 21a8 8 0 0 1 16 0"/>`,
+  servers: () => html`<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><line x1="7" y1="7.5" x2="7.01" y2="7.5"/><line x1="7" y1="16.5" x2="7.01" y2="16.5"/>`,
+  kad: () => html`<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/>`,
+  messages: () => html`<path d="M3 4.69A1.69 1.69 0 0 1 4.69 3h14.63A1.69 1.69 0 0 1 21 4.69v10.13a1.69 1.69 0 0 1-1.69 1.69H12l-4.5 4.5v-4.5H4.69A1.69 1.69 0 0 1 3 15z"/><line x1="7.5" y1="7.5" x2="16.5" y2="7.5"/><line x1="7.5" y1="11.44" x2="13.13" y2="11.44"/>`,
+  stats: () => html`<path d="M3 3v18h18"/><path d="M7 15l3-4 3 3 4-6"/>`,
+  logs: () => html`<line x1="5" y1="7" x2="19" y2="7"/><line x1="5" y1="12" x2="19" y2="12"/><line x1="5" y1="17" x2="14" y2="17"/>`,
+  categories: () => html`<path d="M20.6 13.4 12 22l-9-9V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/>`,
+  preferences: () => html`<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>`,
+  about: () => html`<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/>`,
+
+  // --- actions / status -------------------------------------------------
+  menu: () => html`<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>`,
+  connect: () => html`<path d="M9 2v6M15 2v6M7 8h10v2a5 5 0 0 1-10 0z"/><path d="M12 15v7"/>`,
+  cancel: () => html`<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>`,
+  remove: () => html`<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>`,
+  trash: () => html`<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/>`,
+  edit: () => html`<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>`,
+  copy: () => html`<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>`,
+  // Alias of the `downloads` nav-icon drawing, named for the "save to device" action.
+  download: () => html`<path d="M12 3v10"/><path d="M8 9l4 4 4-4"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/>`,
+  pause: () => html`<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>`,
+  play: () => html`<path d="M7 5l12 7-12 7z"/>`,
+  stop: () => html`<rect x="6" y="6" width="12" height="12" rx="1"/>`,
+  up: () => html`<path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>`,
+  down: () => html`<path d="M12 5v14"/><path d="M5 12l7 7 7-7"/>`,
+  live: () => html`<circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/>`,
+  polling: () => html`<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>`,
+  "sort-asc": () => html`<path d="M6 14l6-6 6 6"/>`,
+  "sort-desc": () => html`<path d="M6 10l6 6 6-6"/>`,
+  verified: () => html`<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/>`,
+  warning: () => html`<path d="M12 3l9 16H3z"/><line x1="12" y1="10" x2="12" y2="14"/><line x1="12" y1="16.5" x2="12.01" y2="16.5"/>`,
+  lock: () => html`<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>`,
+  star: () => html`<path d="M12 3l2.7 5.5 6 .9-4.3 4.2 1 6-5.4-2.8-5.4 2.8 1-6L3.3 9.4l6-.9z"/>`,
+  // One peer with a check: friends-list membership. Deliberately not `star`,
+  // which marks the reserved upload slot and can sit on the same row.
+  friend: () => html`<circle cx="10" cy="8" r="3.2"/><path d="M3.8 19a6.2 6.2 0 0 1 10.4-4.3"/><path d="M15.5 17.6l2 2 3.5-4.2"/>`,
+  logout: () => html`<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/><path d="M10 17l5-5-5-5"/><line x1="15" y1="12" x2="3" y2="12"/>`,
+  reset: () => html`<path d="M3 12a9 9 0 1 1 3 6.7"/><path d="M3 21v-6h6"/>`,
+};
+
+export function Icon({ name, size = 18, title, class: cls }) {
+  const draw = ICONS[name];
+  if (!draw) return null;
+  return html`
+    <svg class=${"icon" + (cls ? " " + cls : "")} width=${size} height=${size}
+         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round"
+         role=${title ? "img" : null} aria-hidden=${title ? null : "true"}>
+      ${title ? html`<title>${title}</title>` : null}
+      ${draw()}
+    </svg>`;
+}

@@ -1,0 +1,1088 @@
+/* aMule Web — design system + responsive shell, styled after the aMule /
+   amuleGUI desktop app. Vanilla CSS, no preprocessor.
+
+   Theme resolution (light by default):
+     - :root                         -> light tokens
+     - prefers-color-scheme: dark    -> dark tokens (when no manual override)
+     - :root[data-theme="dark|light"]-> manual override from the WebUI preferences
+*/
+
+:root {
+  /* light theme */
+  color-scheme: light;
+  --bg: #e9edf2;
+  --surface: #ffffff;
+  --surface-2: #e7ebf0;
+  --toolbar: #dde3ea;
+  --border: #cbd2db;
+  --text: #1f2430;
+  --text-dim: #5b6472;
+  --accent: #1664c0;
+  --accent-contrast: #ffffff;
+  --ok: #2e9e54;
+  --warn: #d68a0c;
+  --bad: #cf3b3b;
+  --low: #d68a0c;
+  /* download pieces bar: available-but-not-downloaded parts (aMule's blue).
+     The graph fades --piece-avail-lo (few sources) -> --piece-avail (many)
+     to show availability, like the desktop GUI's blue gradient. */
+  --piece-avail: #0d3b66;
+  --piece-avail-lo: #a6d4ee;
+  --sel: rgba(22, 100, 192, .2);
+  --stripe: rgba(0, 0, 0, .025);
+  --radius: 7px;
+  --shadow: 0 1px 3px rgba(0, 0, 0, .12);
+  --toolbar-h: 60px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* dark tokens — shared by "system + OS dark" and the explicit override */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #1b1f24;
+    --surface: #242a31;
+    --surface-2: #2c333c;
+    --toolbar: #1f252b;
+    --border: #3a424d;
+    --text: #e6e9ee;
+    --text-dim: #9aa3b1;
+    --accent: #3f7cc2;
+    --accent-contrast: #ffffff;
+    --ok: #46b85f;
+    --warn: #e0a13a;
+    --bad: #f0625f;
+    --low: #e0a13a;
+    --piece-avail: #4bb4e6;
+    --piece-avail-lo: #2d6f96;
+    --sel: rgba(75, 155, 255, .16);
+    --stripe: rgba(255, 255, 255, .03);
+    --shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  }
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1b1f24;
+  --surface: #242a31;
+  --surface-2: #2c333c;
+  --toolbar: #1f252b;
+  --border: #3a424d;
+  --text: #e6e9ee;
+  --text-dim: #9aa3b1;
+  --accent: #3f7cc2;
+  --accent-contrast: #ffffff;
+  --ok: #46b85f;
+  --warn: #e0a13a;
+  --bad: #f0625f;
+  --low: #e0a13a;
+  --piece-avail: #4bb4e6;
+  --piece-avail-lo: #2d6f96;
+  --sel: rgba(75, 155, 255, .16);
+  --stripe: rgba(255, 255, 255, .03);
+  --shadow: 0 1px 3px rgba(0, 0, 0, .4);
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* Shell: fill the viewport as a column — toolbar and status bar stay put,
+   only the view scrolls (desktop-app feel). */
+#app { height: 100%; display: flex; flex-direction: column; }
+
+a { color: var(--accent); text-decoration: none; }
+b { font-weight: 600; }
+
+.icon { display: inline-block; vertical-align: middle; flex: none; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); border: 0;
+}
+
+/* --- toolbar / nav (aMule-style icon buttons) --- */
+.app-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  min-height: var(--toolbar-h);
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  flex: none;
+}
+.brand { display: flex; align-items: center; padding-right: 4px; }
+.brand-logo { height: 40px; width: auto; }
+/* hamburger, shown only on small screens (.app-toolbar prefix outranks .btn) */
+.app-toolbar .nav-toggle { display: none; position: relative; }
+.route-title { display: none; }    /* current section name, mobile only */
+.nav-tools { display: none; }      /* drawer copies of the header tools, mobile only */
+
+.nav {
+  display: flex;
+  gap: 2px;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 60px;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.tool-btn .icon { width: 20px; height: 20px; }
+.tool-label { font-size: 11px; font-weight: 500; }
+.tool-btn:hover { background: var(--surface-2); color: var(--text); }
+.tool-btn.active { background: var(--sel); color: var(--accent); }
+
+.header-tools { display: flex; align-items: center; gap: 8px; }
+/* Keep the right-hand buttons (Add, logout) the same height. */
+.header-tools .btn, .header-tools .input { height: 34px; }
+.ed2k-add { display: flex; gap: 6px; }
+.ed2k-input { width: 180px; max-width: 38vw; }
+
+/* --- status bar (bottom, like aMule) --- */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 14px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  flex-wrap: wrap;
+  flex: none;
+}
+.status-left { display: inline-flex; align-items: center; }
+/* amulegui-style footer: live badge left, everything else pushed right */
+.status-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-left: auto; }
+.status-item { display: inline-flex; align-items: center; gap: 6px; }
+/* vertical divider between groups (status bar, toolbars), like amulegui's
+   wxStaticLine */
+.vsep { width: 1px; align-self: stretch; min-height: 16px; background: var(--border); }
+.conn-div { color: var(--text-dim); }
+/* connection state as plain colored text (no badge), like amulegui's labels */
+.conn-state.ok { color: var(--ok); }
+.conn-state.warn, .conn-state.low { color: var(--warn); }
+.conn-state.off { color: var(--text-dim); }
+.status-chip {
+  padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: var(--surface); border: 1px solid var(--border);
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.status-chip .icon { width: 12px; height: 12px; }
+.status-chip.ok { color: var(--ok); border-color: var(--ok); }
+.status-chip.warn, .status-chip.low { color: var(--warn); border-color: var(--warn); }
+.status-chip.off { color: var(--text-dim); }
+.status-chip.bad { color: var(--bad); border-color: var(--bad); }
+.speeds { gap: 12px; font-variant-numeric: tabular-nums; }
+.speed { display: inline-flex; align-items: center; gap: 4px; }
+.speed .icon { width: 14px; height: 14px; }
+.speed.dl { color: var(--ok); }
+.speed.ul { color: var(--accent); }
+
+/* --- view container --- */
+.view { flex: 1 1 auto; overflow: auto; padding: 16px; }
+.view > * { max-width: 1760px; margin-left: auto; margin-right: auto; }
+.view-header {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.spacer { flex: 1 1 auto; }
+.toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.shared-dirs-add { margin-top: 10px; }
+.server-toolbars { --srv-field: 190px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.server-toolbars .input-sm { width: var(--srv-field); max-width: 100%; }
+
+/* --- buttons + inputs --- */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+.btn .icon { width: 16px; height: 16px; }
+.btn:hover { background: var(--surface-2); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+/* Keep the accent fill on hover; .btn:hover would otherwise repaint it grey. */
+.btn-primary:hover { background: var(--accent); filter: brightness(1.05); }
+.btn-ghost { background: transparent; }
+.btn-danger { color: var(--bad); border-color: var(--bad); }
+.btn-icon { padding: 6px; }
+.btn-sm { padding: 4px 8px; font-size: 13px; }
+.btn-sm .icon { width: 15px; height: 15px; }
+
+/* Column picker: a <details> whose summary is a small icon button and whose
+   body is an absolutely-positioned checkbox menu. Native <details> owns
+   open/close so there's no outside-click handler. */
+.col-picker { position: relative; display: inline-flex; }
+.col-picker > summary { list-style: none; cursor: pointer; }
+.col-picker > summary::-webkit-details-marker { display: none; }
+.col-picker-menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
+  min-width: 160px; max-height: 60vh; overflow-y: auto; padding: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.col-picker-item {
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px;
+  border-radius: var(--radius); cursor: pointer; white-space: nowrap; font-size: 13px;
+}
+.col-picker-item:hover { background: var(--surface-2); }
+.col-picker-item input { margin: 0; }
+.col-picker-sep { height: 1px; margin: 4px 2px; background: var(--border); }
+.col-picker-reset {
+  width: 100%; border: none; background: none; color: inherit; font: inherit;
+  text-align: left;
+}
+
+/* Column resize handle: a thin invisible strip pinned to the right edge of
+   a resizable <th>, widened visually only on hover/drag so it doesn't
+   compete with the sort-click target covering the rest of the header. */
+.col-resize-handle {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 6px;
+  cursor: col-resize; touch-action: none; z-index: 2;
+}
+.col-resize-handle:hover, .col-resize-handle:active { background: var(--accent); opacity: .5; }
+
+.input, select, textarea {
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius);
+  font: inherit;
+}
+.input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--accent); outline-offset: -1px;
+}
+.input:disabled, select:disabled, textarea:disabled {
+  background: var(--surface-2); color: var(--text-dim); cursor: not-allowed;
+}
+
+/* Guest mode: hide admin-only controls. */
+body.role-guest .admin-only { display: none !important; }
+
+/* --- tables (native list look) --- */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+table.data { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.data th, table.data td {
+  padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+table.data th {
+  /* position: relative is redundant with sticky today (sticky already
+     establishes a containing block for the absolutely-positioned resize
+     handle) but pins that down explicitly, so the handle stays anchored
+     even if the header ever stops being sticky. */
+  position: sticky; top: 0; background: var(--surface-2);
+  font-weight: 600; cursor: default; z-index: 1;
+  /* Column boundary, header-only -- the body stays borderless/clean, but
+     without this a resize handle has nothing marking where it lives, so
+     dragging feels like guesswork instead of grabbing a visible edge. */
+  border-right: 1px solid var(--border);
+  /* else a label wider than its column spills over the next header */
+  overflow: hidden; text-overflow: ellipsis;
+}
+table.data th:last-child { border-right: none; }
+table.data th.sortable { cursor: pointer; user-select: none; }
+table.data th.sortable:hover { color: var(--accent); }
+table.data th .sort-arrow { display: inline-flex; vertical-align: middle; opacity: .8; }
+table.data th .sort-arrow .icon { width: 12px; height: 12px; }
+table.data tbody tr:nth-child(even) { background: var(--stripe); }
+table.data tbody tr:hover { background: var(--surface-2); }
+table.data tbody tr.connected,
+table.data tbody tr.connected:nth-child(even) { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); }
+table.data tbody tr.connected:hover { background: color-mix(in srgb, var(--accent) 26%, var(--surface)); }
+table.data tbody tr.connected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+table.data tbody tr.connecting,
+table.data tbody tr.connecting:nth-child(even) { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); }
+table.data tbody tr.connecting:hover { background: color-mix(in srgb, var(--warn) 26%, var(--surface)); }
+table.data tbody tr.connecting td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+table.data td.num, table.data th.num { text-align: right; }
+/* Select column: .cell-check fills the cell, so the whole cell toggles the row.
+   No position on the th -- it is already sticky (its own containing block), and
+   relative would unstick the select-all header. */
+table.data td.check { position: relative; }
+table.data .cell-check {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+table.data td.name { white-space: normal; word-break: break-word; min-width: 220px; max-width: 520px; }
+.row-selected, .row-selected:hover { background: var(--sel) !important; }
+
+/* Empty/error/loading placeholder for a table, rendered as a sibling of the
+   <table>: a table is often wider than the viewport, so a cell centred over its
+   full width lands off-screen. Sticky keeps it in view on sideways scroll. */
+.table-wrap .table-empty { position: sticky; left: 0; }
+
+/* virtualized tables: fixed layout keeps columns from jittering as the visible
+   window changes; single-line cells keep every row the same fixed height. */
+.table-wrap.virtual { overflow-y: auto; overflow-x: auto; }
+table.data.virtual { table-layout: fixed; }
+table.data.virtual td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+table.data.virtual td.name { white-space: nowrap; word-break: normal; min-width: 0; max-width: none; }
+/* striping is applied by absolute-index class (see table.js), not nth-child,
+   because the leading spacer row would flip the parity. */
+table.data.virtual tbody tr:nth-child(even) { background: none; }
+table.data.virtual tbody tr.stripe { background: var(--stripe); }
+table.data.virtual tbody tr.spacer td { border: 0; padding: 0; }
+table.data.virtual tbody tr.spacer:hover { background: transparent; }
+/* search results already in your downloads/shared: same accent look as a
+   connected server row, scoped to beat the .stripe band's specificity. */
+table.data.virtual tbody tr.row-have,
+table.data.virtual tbody tr.row-have.stripe { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); }
+table.data.virtual tbody tr.row-have:hover { background: color-mix(in srgb, var(--accent) 26%, var(--surface)); }
+table.data.virtual tbody tr.row-have td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+/* Rows that open a detail panel on click take the pointer cursor, so it reads
+   as clickable (downloads, shared files, clients). */
+table.data.virtual tbody tr.clickable { cursor: pointer; }
+/* A4AF source row (parked on another file): muted, and the "A4AF: <file>" badge
+   that replaces the parts cell reads as a label, not transfer data. */
+table.data.virtual tbody tr.a4af td { color: var(--text-dim); font-style: italic; }
+.a4af-badge { color: var(--text-dim); font-style: italic; }
+/* flex name cell: ellipsize the name, keep any trailing element visible. */
+table.data.virtual td .name-cell { display: flex; align-items: center; gap: 6px; }
+table.data.virtual td .name-cell .name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Search hit advertised under several filenames: the picker replaces the name
+   text, so it takes the column's whole width. */
+table.data.virtual td.name .name-select { width: 100%; max-width: 100%; }
+
+/* --- progress bar (flat, accent-filled) --- */
+.progress {
+  position: relative; height: 18px; min-width: 90px; border-radius: 3px;
+  background: var(--surface-2); overflow: hidden; border: 1px solid var(--border);
+}
+.progress-fill {
+  position: absolute; inset: 0 auto 0 0; overflow: hidden;
+  width: calc(var(--p, 0) * 1%); background: var(--accent);
+}
+/* Two centred copies of the % keep it legible over both regions in either
+   theme: the base reads on the empty track, the fill copy (white, clipped to
+   the fill) reads on the accent. ponytail: fill copy is sized to the whole bar
+   via 10000%/--p so both stay centred on the bar, not on the fill. */
+.progress-label {
+  position: absolute; inset: 0; text-align: center;
+  font-size: 12px; font-weight: 600; line-height: 18px; color: var(--text);
+}
+.progress-label-fill {
+  right: auto; width: calc(10000% / max(var(--p, 0), 1));
+  color: var(--accent-contrast);
+}
+
+/* --- badges --- */
+.badge { padding: 1px 7px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: var(--surface-2); border: 1px solid var(--border); }
+.badge.downloading { color: var(--ok); border-color: var(--ok); }
+.badge.paused { color: var(--text-dim); }
+.badge.stopped { color: var(--bad); border-color: var(--bad); }
+.badge.error { color: var(--bad); border-color: var(--bad); }
+.badge.waiting { color: var(--warn); border-color: var(--warn); }
+
+/* --- placeholders --- */
+.placeholder {
+  padding: 40px 16px; text-align: center; color: var(--text-dim);
+}
+/* kind="loading" grows a spinner; order:-1 puts it above the text. */
+.placeholder-loading { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.placeholder-loading::after {
+  content: ""; order: -1; width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .placeholder-loading::after { animation: none; } }
+.placeholder-error { color: var(--bad); }
+
+/* --- cards / forms --- */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px; margin-bottom: 16px;
+}
+.card h3 { margin: 0 0 12px; font-size: 15px; }
+.form-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.form-grid-2 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 13px; color: var(--text-dim); }
+.field-inline { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+
+/* --- login --- */
+.login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.login-form {
+  width: 100%; max-width: 340px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 28px 24px;
+  display: flex; flex-direction: column; gap: 14px; text-align: center;
+}
+.login-logo { height: 52px; margin: 0 auto; }
+.login-title { font-size: 16px; margin: 0; color: var(--text-dim); font-weight: 500; }
+.login-error { color: var(--bad); min-height: 1em; margin: 0; font-size: 13px; }
+/* Why we bounced back to login (expired session, lockout) — a statement of
+   fact, not a failed action, so it reads warn rather than bad. */
+.login-notice { color: var(--warn); margin: 0; font-size: 13px; }
+
+/* --- About version alert --- */
+.about-alert { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.about-alert .icon { color: var(--warn); flex: 0 0 auto; }
+.about-alert.update .icon { color: var(--accent); }
+.update-actions { margin-top: 14px; }
+.update-status.available { color: var(--accent); font-weight: 500; }
+
+/* --- toast + modal --- */
+.toast-host {
+  position: fixed; right: 16px; bottom: 16px; z-index: 100;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.toast {
+  padding: 10px 14px; border-radius: var(--radius); box-shadow: var(--shadow);
+  background: var(--surface); border-left: 4px solid var(--accent);
+  color: var(--text); max-width: 360px; animation: toast-in .2s ease;
+}
+.toast.success { border-left-color: var(--ok); }
+.toast.error { border-left-color: var(--bad); }
+.toast.warn { border-left-color: var(--warn); }
+.toast-out { opacity: 0; transition: opacity .3s; }
+@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: grid; place-items: center; z-index: 90; padding: 16px;
+  /* Overrides the `.view > *` max-width/auto-margins when the overlay is
+     rendered inline in a view (otherwise the backdrop is capped to 1400px). */
+  max-width: none; margin: 0;
+}
+.modal {
+  background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 20px; max-width: 420px; width: 100%;
+}
+/* Comments/ratings dialog: a four-column table needs more than a confirm
+   prompt's 420px. */
+.modal-wide { max-width: 720px; }
+.modal-wide .comments-list { margin-top: 12px; }
+.modal-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.modal-header h3 { margin: 0; font-size: 15px; }
+/* Inline categories panel header (title + Add category button). */
+.cat-panel-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.cat-panel-header h3 { margin: 0; font-size: 15px; }
+.modal-msg { margin: 0 0 16px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* --- transfers / shared extras --- */
+.input-sm { padding: 3px 6px; font-size: 13px; }
+/* Selects/inputs render taller than buttons (line-height: normal vs 1). Pin the
+   small controls to one height so they line up side by side, e.g. the category
+   select next to the download button in the search results action cells. */
+.input-sm, .btn-sm { height: 28px; }
+.totals-line { padding: 8px 4px; color: var(--text-dim); font-size: 13px; }
+/* Keep this cell a real table-cell (not display:flex) so its bottom border
+   collapses with the row like every other column. */
+.row-actions { white-space: nowrap; }
+.row-actions .btn { vertical-align: middle; }
+.peer-flags { white-space: nowrap; }
+.peer-flags .icon { vertical-align: middle; margin-right: 3px; color: var(--text-dim); }
+.peer-flags .icon.flag-warn { color: var(--warn); }
+.row-actions .btn + .btn { margin-left: 4px; }
+.row-actions select + .btn { margin-left: 6px; }
+/* A select sizes itself to its longest option, so a long category name would
+   otherwise push the row's buttons out of the cell (Chrome clips them; Firefox
+   renders the select narrower and hides the problem). */
+.row-actions select { max-width: 130px; }
+.color-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border); vertical-align: middle; }
+.country-cell { white-space: nowrap; }
+.flag { display: inline-block; width: 16px; height: 11px; vertical-align: middle; margin-right: 5px; }
+
+/* --- search --- */
+.search-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px; margin-bottom: 12px;
+}
+.search-grid .input, .search-grid select { width: 100%; padding: 4px 8px; }
+.search-grid .field-inline .input { flex: 1; min-width: 0; }
+.search-grid .field-inline select { width: auto; flex: 0 0 auto; }
+.search-grid .field-wide { grid-column: span 2; }
+.search-form { margin-bottom: 8px; }
+.search-progress { color: var(--text-dim); font-size: 13px; }
+.pane-toolbar .search-progress { margin-left: 6px; }
+.net-pane .pane-toolbar { margin-bottom: 12px; }
+.hint { color: var(--text-dim); font-size: 13px; margin: 8px 0 0; }
+
+/* --- stat grid (components.js Section) --- */
+/* Flex, not a track grid: fields pack left at their natural width and wrap,
+   instead of every group stretching its cells over a fixed track count. */
+.kad-grid { display: flex; flex-wrap: wrap; gap: 12px 30px; }
+.kad-grid > div { min-width: 150px; max-width: 100%; }
+.kad-stat-label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+.kad-stat-value {
+  font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+/* --- stats --- */
+.charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 16px; }
+/* Statistics page: fixed 2×2 grid like the desktop statsDlg —
+   Download | Upload on top, Connections | Statistics Tree below. All four
+   cards share one row height so the charts match the stats-tree card. */
+.stats-grid { grid-template-columns: 1fr 1fr; grid-auto-rows: 340px; }
+.stats-tree-card { display: flex; flex-direction: column; min-height: 0; }
+.stats-tree-card .stats-tree { overflow-y: auto; min-height: 0; }
+/* Chart card fills its cell; the canvas host takes the space left by the title
+   and legend (charts.js sizes the canvas to the host height). */
+.chart-card { margin-bottom: 0; display: flex; flex-direction: column; }
+.chart-card .chart-host { flex: 1 1 auto; min-height: 0; }
+.chart-legend {
+  display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px;
+  font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums;
+}
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-chip { display: inline-block; width: 16px; height: 10px; border-radius: 2px; }
+/* Borderless chart (used inside the Networks/Kad pane, which already has its
+   own surface + border). Sits below the controls with some breathing room. */
+.chart-bare { padding: 0; margin-top: 10px; }
+/* Compact title: the pane is short, so the plot gets the height the desktop
+   GUI spends on a group box caption. */
+.chart-bare h3 { margin: 0 0 2px; font-size: 13px; font-weight: 500; color: var(--text-dim); }
+.chart-host { width: 100%; }
+.stats-tree { font-size: 13px; }
+.stats-tree details { margin: 2px 0; padding-left: 12px; border-left: 1px solid var(--border); }
+.stats-tree summary { cursor: pointer; padding: 2px 0; font-weight: 600; }
+.stats-tree .tree-leaf { padding: 2px 0 2px 14px; color: var(--text-dim); }
+
+/* --- preferences (PrefsUnifiedDlg-style: category list + panel) --- */
+/* Preferences use the shared notebook (.net-pane / .net-pane-body); only the
+   in-panel group boxes need extra styling here. */
+/* Group cards flow into masonry-style columns so short cards don't leave a gap
+   under them: up to 3 on wide desktop, 2 on medium, 1 on phones (see @media).
+   Cards keep source order down each column, so the phone view (1 column) is
+   that same sequence. */
+/* The JS reflow nudge in preferences.js repaints this box after re-renders:
+   Gecko otherwise leaves blank rows in multicol content (#1330). */
+.prefs-groups { column-count: 3; column-gap: 14px; margin-bottom: 14px; }
+.prefs-panel fieldset {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); padding: 12px 14px; margin: 0 0 14px; min-width: 0;
+  break-inside: avoid; -webkit-column-break-inside: avoid;
+}
+.prefs-panel legend { padding: 0 6px; font-size: 13px; font-weight: 600; color: var(--text-dim); }
+.prefs-panel .field-wide { grid-column: 1 / -1; }
+/* Give checkboxes the input row height so rows keep a consistent rhythm. */
+.prefs-panel .field-inline { min-height: 35px; }
+/* Disabled checkboxes read as disabled like the text inputs: muted box, dim
+   label (native checkboxes otherwise keep their accent colour and full-colour
+   label). */
+.prefs-panel .field-inline input:disabled { opacity: 0.5; cursor: not-allowed; }
+.prefs-panel .field-inline input:disabled + label { color: var(--text-dim); cursor: not-allowed; }
+/* Seam: this panel shares a fieldset with real preferences but has its own
+   button, so it must not read as fields the global Apply saves. */
+.prefs-creds { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
+/* Text field with a trailing action button (update-from-URL). */
+.field-action { display: flex; align-items: center; gap: 6px; }
+.field-action .input { flex: 1; min-width: 0; }
+/* Sub-options: indented under their parent (two nesting levels). */
+.prefs-panel .field-sub { margin-left: 24px; }
+.prefs-panel .field-sub2 { margin-left: 48px; }
+.prefs-panel textarea { resize: vertical; font: inherit; }
+.prefs-warning { color: var(--warn); font-weight: 600; margin-bottom: 16px; }
+.prefs-actions { justify-content: center; }
+.webui-reset-actions { margin-top: 14px; }
+
+/* --- log/pre views --- */
+.logbox-wrap { position: relative; min-width: 0; }
+/* Floats over the box's top-right corner to save vertical space; opaque so the
+   unwrapped lines scrolling underneath stay hidden. */
+.logbox-actions {
+  position: absolute; top: 8px; right: 8px; z-index: 1;
+  display: flex; gap: 6px; padding: 4px; border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.logbox {
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+  font-family: var(--mono); font-size: 12.5px;
+  padding: 12px; border-radius: var(--radius); overflow: auto; max-height: 30vh;
+  white-space: pre; margin: 0;
+}
+.logbox-sm { max-height: 22vh; }
+.logbox-err { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* keep the box's line-height (and padding) when there is no log content yet */
+.logbox:empty::before { content: "\00a0"; }
+
+/* --- per-network connect button: a .btn whose plug is coloured by state --- */
+.conn-btn.disconnected .icon { color: var(--bad); }  /* red — disconnected */
+.conn-btn.connecting   .icon { color: var(--warn); } /* amber — connecting */
+.conn-btn.connected    .icon { color: var(--ok); }   /* green — connected */
+/* extra controls riding the right of a tab strip (Downloads category filters) */
+.tabs-extra { margin-left: auto; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+
+/* --- notebook-style tabs (CMuleNotebook look) --- */
+/* Inset shadow, not border-bottom: a scrolling strip clips at its padding box,
+   so over a real border the active tab could not paint its -1px overhang and
+   would look detached from the pane. */
+.tabs {
+  display: flex; gap: 2px; flex-wrap: wrap;
+  box-shadow: inset 0 -1px 0 var(--border); margin-bottom: 12px;
+}
+.tab {
+  border: 1px solid var(--border); border-bottom: none;
+  background: var(--surface-2); color: var(--text-dim);
+  padding: 6px 14px; border-radius: var(--radius) var(--radius) 0 0;
+  cursor: pointer; font: inherit; line-height: 1.4; margin-bottom: -1px;
+}
+.tab:hover { background: var(--surface); color: var(--text); }
+.tab.active {
+  background: var(--surface); color: var(--text); font-weight: 600;
+  border-color: var(--border); border-bottom-color: var(--surface);
+}
+.tab-badge {
+  margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 11px;
+  background: var(--border); color: var(--text-dim);
+}
+.tab.active .tab-badge { background: var(--accent); color: var(--accent-contrast); }
+
+.tab-item { display: inline-flex; align-items: stretch; flex: 0 0 auto; }
+.tab-item .tab { border-top-right-radius: 0; }
+.tab-close {
+  border: 1px solid var(--border); border-left: none; border-bottom-color: transparent;
+  background: var(--surface-2); color: var(--text-dim);
+  border-radius: 0 var(--radius) 0 0; margin-bottom: -1px;
+  padding: 0 9px; cursor: pointer; font: inherit; line-height: 1.4;
+}
+.tab-close:hover { background: var(--surface); color: var(--bad); }
+.tab-item .tab.active + .tab-close { background: var(--surface); color: var(--text); border-bottom-color: var(--surface); }
+.tab.running { font-style: italic; }
+.tab.running .tab-badge { background: var(--accent); color: var(--accent-contrast); }
+
+/* --- Networks split (top: ED2K/Kad, bottom: log/server info) --- */
+/* No gap on desktop: the draggable .splitter (+ its own margin) is the visual
+   divider between the two panes, like Downloads. Mobile restores a gap since
+   the splitter is hidden there (see the responsive block). */
+.net-split { display: flex; flex-direction: column; gap: 0; }
+/* Small breathing room below the splitter so it doesn't sit flush against the
+   bottom pane's tab strip. Lives on the splitter (hidden on mobile) so it adds
+   no extra gap there. */
+.net-split .splitter { margin: 2px 0 8px; }
+/* Bottom pane (log/server info) keeps the dragged pixel height; its body fills
+   so the log box grows to the pane instead of its default 30vh cap — otherwise
+   dragging the splitter would just move empty space. */
+.net-split .net-pane:last-child { flex: none; min-height: 0; }
+/* overflow only here: the info tabs are taller than the pane the splitter
+   leaves them. Not on .net-pane-body itself -- that would clip the
+   ColumnPicker menu, which hangs out of the table panes. */
+.net-split .net-pane:last-child .net-pane-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+/* Column so the <pre> is stretched to the wrapper width (cross axis) and
+   scrolls its long lines, instead of a flex row where it would keep its
+   longest-line width and overflow the pane. */
+.net-split .logbox-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.net-split .logbox { flex: 1 1 auto; max-height: none; min-height: 0; }
+/* Kad tab graph fills the top pane so it grows/shrinks with the splitter
+   (charts.js sizes the canvas to the host and redraws via a ResizeObserver). */
+.net-split .chart-bare { flex: 1 1 auto; min-height: 0; }
+/* notebook: content box hangs off the tab strip's bottom line, no outer card */
+.net-pane { display: flex; flex-direction: column; }
+.net-pane .tabs { margin-bottom: 0; }
+.net-pane-body {
+  min-height: 0; background: var(--surface);
+  border: 1px solid var(--border); border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius); padding: 12px;
+}
+
+/* --- Full-height split (table on top, detail panel below) --- */
+/* Shared by the Downloads and Shared Files pages (see split-detail.js): the
+   page fills the viewport and scrolls its regions internally (app-like)
+   instead of scrolling the whole page. */
+.split-view { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+/* Full-height page without a detail split: the root fills the viewport and its
+   marked region (.pane-fill) scrolls internally, reusing the .split-view flex
+   chain below. Used by Clients, Searches and Networks. */
+.fill-view { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+/* The table region (net-pane on Downloads, card on Shared) fills the top pane;
+   the detail (.split-bottom) is a sibling below the splitter, no longer nested
+   in the table's box (it draws no box of its own — see .split-bottom below). */
+.split-view .net-pane, .fill-view .pane-fill { flex: 1 1 auto; min-height: 0; }
+.split-view .net-pane-body, .fill-view .pane-fill .net-pane-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* Shared Files' top region is a plain .card (no category-tab net-pane like
+   Downloads), and it's the fill region — now nested in .split-top. The
+   direct-child form also covers the Categories panel card shown in Downloads'
+   manage-categories mode. */
+.split-top > .card, .split-view > .card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+/* fill the region and scroll rows internally (overrides the default 70vh cap) */
+.split-view .table-wrap.virtual, .fill-view .table-wrap.virtual { flex: 1 1 auto; min-height: 0; }
+.split-view table.data.virtual tbody tr:not(.spacer) { cursor: pointer; }
+
+.split { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.split-top { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.splitter {
+  flex: none; height: 7px; margin: 2px 0; cursor: row-resize;
+  background: var(--border); border-radius: 3px; touch-action: none;
+}
+.splitter:hover { background: var(--accent); }
+/* No outer box: the detail's title + tabs sit free; only the tab content
+   (.detail-body) is boxed (notebook look, like .net-pane / .net-pane-body).
+   The panel itself never scrolls — the head + tabs stay fixed and only
+   .detail-body scrolls, so the tab strip is always reachable. */
+.split-bottom {
+  flex: none; position: relative; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+/* Keep both halves of the splitter usable on short landscape displays. The
+   inline detail height is persisted in CSS pixels; on a phone held sideways
+   the desktop breakpoint can be active even though the viewport is too short
+   for that stored height. Reserve room above for the table and its controls. */
+@media (max-height: 600px) and (min-width: 861px) {
+  .net-split .net-pane:last-child,
+  .split-bottom { max-height: calc(100% - 220px); }
+}
+
+/* selected-for-detail row: accent left edge (mirrors .connected) */
+.row-active td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.row-active, .row-active:hover { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+
+/* --- detail panel content --- */
+/* No side padding: the head, tabs and content box span the panel's full width,
+   flush with the table container above (the mobile sheet re-adds padding).
+   Flex column so the head + tabs stay fixed and .detail-body takes the rest. */
+.detail-panel { padding: 10px 0 4px; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.detail-head { flex: none; }
+.detail-close { position: absolute; top: 8px; right: 8px; z-index: 1; }
+/* title row: just the file name (ellipsised); padding-right leaves room for the
+   absolute close button, which centres on this row. */
+.detail-titlebar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; padding-right: 34px; }
+.detail-name {
+  margin: 0; font-size: 15px; flex: 1 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Heading on its own line; the action row and the fields share the next one. */
+.detail-group { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 30px; }
+.detail-group > .kad-grid { flex: 0 1 auto; }
+/* Shrinkable, not flex:none — it has to narrow for its own flex-wrap to kick in,
+   or the row stays at max-content and the last button is clipped on a phone. */
+.detail-actions { display: flex; flex-wrap: wrap; gap: 8px; flex: 0 1 auto; }
+.detail-head .detail-actions { margin-bottom: 10px; }
+/* Label + select fused into one control. */
+.detail-head .field-inline {
+  gap: 0; height: 28px; border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+}
+.detail-head .field-inline > label,
+.detail-head .field-inline > b {
+  display: flex; align-items: center; align-self: stretch; padding: 0 8px;
+  font-size: 12px; white-space: nowrap;
+}
+.detail-head .field-inline > label { color: var(--text-dim); background: var(--surface-2); }
+.detail-head .field-inline > select { border: none; border-radius: 0; height: 100%; }
+.detail-progress .progress { height: 22px; margin-bottom: 10px; }
+.pieces-bar {
+  width: 100%; height: 24px; border-radius: 3px; overflow: hidden;
+  border: 1px solid var(--border);
+  /* track shows through the 1px gaps drawn between pieces (when wide enough) */
+  background: var(--surface-2);
+}
+.pieces-bar canvas { display: block; width: 100%; height: 100%; }
+.pieces-legend { margin-top: 8px; align-items: center; }
+.pieces-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
+.pieces-total { margin-left: auto; color: var(--text-dim); font-weight: 600; }
+/* Availability scale, inline right after "Available": the blue's shade encodes
+   how many sources have each part. Flanked by "fewer"/"more" so the mapping is
+   explicit and theme-independent (full meaning in the item's tooltip). */
+.pieces-scale { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; }
+.pieces-scale small { color: var(--text-dim); font-size: 11px; }
+.pieces-scale-bar {
+  width: 64px; height: 10px; border-radius: 2px; border: 1px solid var(--border);
+  background: linear-gradient(90deg, var(--piece-avail-lo), var(--piece-avail));
+}
+/* Each group is a full-width horizontal strip, stacked top to bottom. */
+.detail-sections { display: flex; flex-direction: column; gap: 18px; }
+.detail-group-title {
+  flex: 0 0 100%; margin: 0; padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.detail-panel .mono { font-family: var(--mono); font-size: 13px; }
+/* Tabs hang off the content box's top edge (no gap), notebook-style. */
+.detail-panel .tabs { margin-top: 0; margin-bottom: 0; flex: none; }
+.detail-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border); border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius); padding: 12px;
+}
+
+/* --- per-file clients tab --- */
+/* Fills the detail body so the table scrolls its own rows (the .split-view
+   .table-wrap.virtual rule above gives it flex:1) instead of stretching the
+   panel and adding a second scrollbar. */
+.detail-clients { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+
+/* --- comments / ratings tab --- */
+.detail-comments { display: flex; flex-direction: column; gap: 16px; }
+.comment-editor { display: flex; flex-direction: column; gap: 8px; }
+.comment-editor-label {
+  font-size: 13px; font-weight: 600; color: var(--text-dim);
+}
+.comment-editor-text { resize: vertical; font-family: inherit; min-height: 44px; }
+.comment-editor-row { display: flex; gap: 8px; align-items: center; }
+.comment-editor-hint { margin: 0; font-size: 12px; color: var(--text-dim); }
+.rename-form { display: flex; flex-direction: column; gap: 8px; }
+.rename-label { font-size: 13px; font-weight: 600; color: var(--text-dim); }
+.rename-row { display: flex; gap: 8px; align-items: center; }
+.rename-row .input { flex: 1; }
+.comments-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.comments-count { font-size: 13px; color: var(--text-dim); }
+.comments-list { width: 100%; border-collapse: collapse; font-size: 13px; }
+.comments-list th {
+  text-align: left; font-weight: 600; color: var(--text-dim);
+  padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.comments-list td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.comments-fname { color: var(--text-dim); word-break: break-all; }
+.comments-list td:last-child { word-break: break-word; }
+/* Rating text badge, coloured by meaning (mirrors the desktop smiley scale:
+   1 = fake warning, not a low star score). */
+.rating-badge { white-space: nowrap; font-weight: 600; }
+.rating--1, .rating-0 { color: var(--text-dim); font-weight: 400; }
+.rating-1 { color: var(--bad); }
+.rating-2 { color: var(--warn); }
+.rating-3 { color: var(--text-dim); }
+.rating-4 { color: var(--accent); }
+.rating-5 { color: var(--ok); }
+
+/* --- Messages (friends + chat) --- */
+/* Friends left, Messages right. A fixed track, not a draggable sash, so it
+   collapses cleanly to one column on a phone. Keeps .fill-view's height:100%
+   so each pane scrolls its own body. */
+.msg-split {
+  display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 12px;
+  align-items: stretch;
+}
+/* notebook look, same as .net-pane: header outside the box, content boxed */
+.msg-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.msg-pane-head {
+  flex: none; display: flex; align-items: center; gap: 6px;
+  margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--text-dim);
+}
+.msg-pane-body {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px;
+}
+.msg-tabs { margin-bottom: 0; }
+.msg-tabs + .msg-pane-body { border-top-left-radius: 0; border-top-right-radius: 0; }
+.msg-pane-foot { flex: none; padding-top: 8px; }
+.msg-pane-foot .btn { width: 100%; justify-content: center; }
+
+/* friends list */
+.friend-list { list-style: none; margin: 0; padding: 0; }
+.friend-row { display: flex; align-items: center; gap: 2px; border-radius: var(--radius); }
+.friend-row:hover { background: var(--surface-2); }
+.friend-row.active { background: var(--sel); }
+/* The row's open action is a real button, so it must not look like one. */
+.friend-open {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px;
+  background: none; border: none; border-radius: var(--radius);
+  padding: 6px; font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.friend-dot {
+  flex: none; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border); box-shadow: inset 0 0 0 1px var(--text-dim);
+}
+.friend-dot.online { background: var(--ok); box-shadow: none; }
+.friend-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Desktop paints a connected friend blue (#0000FF); a theme token instead. */
+.friend-open.online .friend-name { color: var(--accent); }
+.friend-row .row-actions { flex: none; display: flex; gap: 2px; }
+/* the friend holding the friend slot: solid star, not just an accent outline */
+.friend-row .btn.active { color: var(--accent); border-color: var(--accent); }
+.friend-row .btn.active .icon { fill: currentColor; }
+
+/* conversation */
+.chat-body { display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
+.chat-peer {
+  flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+/* Flat text log, not bubbles; messages.js pins it to the bottom. */
+.chatlog {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+  padding: 4px 2px; overflow-wrap: anywhere;
+}
+.chat-line { white-space: pre-wrap; }
+.chat-time { color: var(--text-dim); margin-right: 4px; }
+.chat-nick { font-weight: 600; }
+.chat-nick.in { color: var(--accent); }   /* peer — the desktop's blue */
+.chat-nick.out { color: var(--ok); }      /* us — the desktop's green */
+.chat-compose { flex: none; display: flex; gap: 6px; padding-top: 8px; }
+.chat-compose .input { flex: 1 1 auto; min-width: 0; }
+
+/* Unread counter on the nav's Messages button, version dot on About. */
+.tool-btn { position: relative; }
+.tool-badge {
+  position: absolute; top: 2px; right: 2px; min-width: 16px; padding: 0 4px;
+  border-radius: 999px; font-size: 10px; line-height: 16px; font-weight: 700;
+  background: var(--bad); color: var(--accent-contrast); text-align: center;
+}
+.tool-dot {
+  position: absolute; top: 4px; right: 6px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--bad);
+}
+/* Aggregate dot on the hamburger (mobile-only via .nav-toggle's display). */
+.nav-toggle-dot {
+  position: absolute; top: 6px; right: 6px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--bad);
+}
+
+/* --- responsive --- */
+@media (max-width: 1100px) {
+  .prefs-groups { column-count: 2; }
+}
+
+@media (max-width: 860px) {
+  /* header shrinks to: hamburger + logo + section name (tools move into the drawer) */
+  .header-tools { display: none; }
+  .route-title { display: block; font-size: 18px; font-weight: 600; }
+  .brand-logo { height: 34px; }
+  .stats-grid { grid-template-columns: 1fr; }
+  .prefs-groups { column-count: 1; }
+
+  /* Downloads on phones: no viewport-fit/splitter. The table stacks and the
+     page scrolls; the detail opens as a full-screen drill-down sheet over the
+     list (below the top bar) so the tap clearly changes the screen and the
+     info is reachable without scrolling past a tall table. */
+  .split-view, .fill-view { height: auto; }
+  .split-view .net-pane, .split-view .net-pane-body, .split-top > .card, .split-view > .card,
+  .fill-view .pane-fill, .fill-view .pane-fill .net-pane-body { flex: 0 0 auto; }
+  .splitter { display: none; }
+  /* !important beats the inline max-height VirtualTable writes ("none" for
+     these callers, since the flex rules above own the height on desktop).
+     Uncapped, the wrap grows to fit every row and the row window — computed
+     from clientHeight — renders the whole list. */
+  .split-view .table-wrap.virtual, .fill-view .table-wrap.virtual { flex: none; min-height: 0; max-height: 60vh !important; }
+  /* Clients has no totals bar to pad it out, so unlike Downloads/Shared its
+     pane stops short and leaves dead space below. Keep the desktop fill: the
+     list grows to the viewport and scrolls internally (on phones the detail is
+     a fixed sheet, so a tall list never hides it). */
+  .fill-view.clients-fill { height: 100%; }
+  .fill-view.clients-fill .pane-fill,
+  .fill-view.clients-fill .pane-fill .net-pane-body { flex: 1 1 auto; }
+  /* The tab strip must not shrink: it is a flex sibling of the (growing) table
+     body, and with overflow-y:hidden any shrink clips the tabs to a sliver. */
+  .fill-view.clients-fill .pane-fill > .tabs { flex: 0 0 auto; }
+  .fill-view.clients-fill .table-wrap.virtual { flex: 1 1 auto; max-height: none !important; }
+  /* Phones: one column, each region capped and scrolling, so the compose box
+     stays on screen below a long friends list. */
+  .msg-split { grid-template-columns: 1fr; height: auto; gap: 14px; }
+  .msg-split .msg-pane, .msg-split .msg-pane-body { flex: 0 0 auto; }
+  .friend-list-wrap { max-height: 30vh; }
+  .msg-split .chat-body { min-height: 0; }
+  .msg-split .chatlog { max-height: 45vh; }
+  /* No room to overlay the nav label in the drawer; sit at the row's end. */
+  .tool-badge, .tool-btn .tool-dot { position: static; margin-left: auto; }
+
+  /* Networks: no splitter on phones — restore the inter-pane gap, let the
+     bottom pane flow, and give the log box back its own height cap. */
+  .net-split { gap: 16px; }
+  .net-split .net-pane:last-child { height: auto !important; flex: 0 0 auto; }
+  .net-split .logbox { flex: none; max-height: 30vh; }
+  .net-split .logbox-sm { max-height: 22vh; }
+  .split-bottom {
+    position: fixed; inset: var(--toolbar-h) 0 0 0; z-index: 60;
+    height: auto !important; overflow: auto;
+    border: none; border-radius: 0; background: var(--surface);
+    animation: sheet-in .18s ease-out;
+  }
+  /* pin the close control to the sheet's top-right so it never scrolls away */
+  .detail-close {
+    position: fixed; top: calc(var(--toolbar-h) + 8px); right: 12px; z-index: 61;
+    background: var(--surface-2); padding: 8px;
+  }
+  .detail-close .icon { width: 18px; height: 18px; }
+  .detail-panel { padding: 16px; }
+  /* let the name wrap to full width; clear the fixed close button */
+  .detail-titlebar { flex-wrap: wrap; padding-right: 40px; }
+  .detail-name { flex-basis: 100%; white-space: normal; }
+  @keyframes sheet-in { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* nav collapses into a hamburger-driven side drawer */
+  .app-toolbar .nav-toggle { display: inline-flex; padding: 10px; }
+  .nav {
+    position: fixed; top: var(--toolbar-h); bottom: 0; left: 0;
+    width: min(260px, 80vw);
+    flex-direction: column; gap: 2px; padding: 8px;
+    background: var(--toolbar); border-right: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    transform: translateX(-100%); transition: transform .2s ease;
+    z-index: 80; overflow-y: auto; overflow-x: hidden;
+  }
+  .nav.open { transform: none; }
+  .nav .tool-btn {
+    flex-direction: row; justify-content: flex-start; gap: 10px;
+    min-height: 44px; padding: 8px 12px; width: 100%;
+  }
+  .nav .tool-label { font-size: 14px; }
+  .nav-backdrop {
+    position: fixed; inset: var(--toolbar-h) 0 0 0;
+    background: rgba(0, 0, 0, .35); z-index: 79;
+  }
+  .nav-tools {
+    display: flex; flex-direction: column; gap: 2px;
+    margin-top: auto; padding-top: 8px;
+  }
+  .nav-tools .ed2k-add { padding: 4px 8px; margin-bottom: 4px; }
+  .nav-tools .ed2k-add .btn { justify-content: center; min-height: 34px; border-color: var(--border); flex: 0 0 auto; padding: 0 12px; }
+  .nav-tools .ed2k-input { flex: 1 1 auto; width: 100%; max-width: none; }
+  .nav-tools .btn { justify-content: flex-start; min-height: 44px; border-color: transparent; }
+  /* reveal the buttons' sr-only labels as drawer row text */
+  .nav-tools .sr-only {
+    position: static; width: auto; height: auto; margin: 0;
+    clip: auto; overflow: visible;
+  }
+  /* roomier tap targets in the column picker on touch screens */
+  .col-picker-item { min-height: 40px; padding: 8px 10px; font-size: 14px; }
+}
+@media (max-width: 600px) {
+  .view { padding: 10px; }
+  /* condensed status bar: hide separators (they orphan on wrap) + network info.
+     Unwrap the left/right groups so live + speed share the first line and the
+     wide connection block wraps beneath them. */
+  .statusbar { font-size: 12px; gap: 8px; padding: 6px 10px; }
+  .status-left, .status-right { display: contents; }
+  .statusbar .vsep { display: none; }
+  .status-extra { display: none; }
+  .speeds { gap: 8px; }
+  .status-chip {
+    display: inline-block; max-width: 45vw; vertical-align: middle;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* keep a long ed2k server name from overflowing the row */
+  .conn-state {
+    display: inline-block; max-width: 40vw; vertical-align: middle;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+}

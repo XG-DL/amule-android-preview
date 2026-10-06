@@ -1,0 +1,156 @@
+// Categories panel: CRUD for download categories, shown inline on the
+// Downloads page (it replaces the category tabs when "Manage categories" is
+// toggled on). No SSE channel, so the list is fetched on mount and after each
+// mutation. Index 0 -- the default category, which holds every download that
+// has none -- cannot be edited or deleted. Adding and editing open a modal
+// form; deleting uses a confirm dialog. Admin-only edit; guests see just the
+// list.
+
+import { api } from "../api.js";
+import { html, useState, useEffect } from "../dom.js";
+import { Placeholder, toast, confirmDialog } from "../components.js";
+import { Icon } from "../icons.js";
+import { t, terr } from "../i18n.js";
+
+const PRIORITIES = ["auto", "low", "normal", "high"]
+  .map((v) => [v, t("downloads_prio_" + v)]);
+
+// Category 0 is the bucket every download without a category falls into. The
+// API synthesizes it and names it "Default", but that name is a constant no
+// catalog translates, so the label comes from i18n here instead; every other
+// index shows the operator's own name.
+export const categoryName = (categories, index) => {
+  if (!index) return t("downloads_category_none");
+  const c = categories.find((c) => c.index === index);
+  return c ? (c.name || "#" + c.index) : String(index);
+};
+
+// The <option> set every category picker shares.
+export const categoryOptions = (categories) => html`
+  <option value=${0}>${t("downloads_category_none")}</option>
+  ${categories.filter((c) => c.index !== 0).map((c) => html`<option value=${c.index}>${c.name || ("#" + c.index)}</option>`)}`;
+
+export function CategoriesPanel({ isGuest }) {
+  const [categories, setCategories] = useState([]);
+  const [loadErr, setLoadErr] = useState("");
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState(null); // null = create mode, else index
+  const [name, setName] = useState("");
+  const [path, setPath] = useState("");
+  const [comment, setComment] = useState("");
+  const [color, setColor] = useState("#1664c0");
+  const [prio, setPrio] = useState("auto");
+
+  const load = async () => {
+    try { setCategories((await api.list("categories")).categories || []); setLoadErr(""); }
+    catch (e) { setLoadErr(terr(e) || t("downloads_cat_error")); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const openCreate = () => {
+    setEditing(null); setName(""); setPath(""); setComment(""); setColor("#1664c0"); setPrio("auto");
+    setFormOpen(true);
+  };
+  const openEdit = (c) => {
+    setEditing(c.index);
+    setName(c.name || ""); setPath(c.save_path || ""); setComment(c.comment || "");
+    setColor(c.color || "#000000"); setPrio(c.priority || "auto");
+    setFormOpen(true);
+  };
+
+  const save = async (e) => {
+    e.preventDefault();
+    const n = name.trim(), p = path.trim();
+    if (!n || !p) { toast(t("downloads_cat_toast_name_path_required"), "warn"); return; }
+    // `color` is "#rrggbb" on the wire in both directions, so no conversion
+    // here (the core packs 0x00BBGGRR, red in the low byte).
+    const body = { name: n, save_path: p, color, priority: prio };
+    if (comment.trim()) body.comment = comment.trim();
+    try {
+      if (editing !== null) await api.patch("categories/" + editing, body);
+      else await api.post("categories", body);
+      toast(t("downloads_cat_toast_saved"), "success"); setFormOpen(false); load();
+    } catch (err) { toast(terr(err) || t("downloads_cat_error"), "error"); }
+  };
+  const remove = async (c) => {
+    if (!(await confirmDialog(t("downloads_cat_confirm_delete", { name: c.name })))) return;
+    try { await api.del("categories/" + c.index); toast(t("downloads_cat_toast_deleted"), "success"); load(); }
+    catch (e) { toast(terr(e) || t("downloads_cat_error"), "error"); }
+  };
+
+  const row = (c) => html`
+    <tr>
+      <td class="name">${c.index === 0 ? html`<strong>${t("downloads_category_none")}</strong>` : c.name}</td>
+      <td>${c.comment || ""}</td>
+      <td>${c.save_path || ""}</td>
+      <td>${prioLabel(c.priority)}</td>
+      <td><span class="color-swatch" style=${{ background: c.color || "#000000" }}></span> ${c.color || ""}</td>
+      ${isGuest ? null : html`
+        <td class="row-actions admin-only">
+          ${c.index === 0 ? null : html`
+            <button class="btn btn-icon btn-sm" title=${t("downloads_cat_edit")} onClick=${() => openEdit(c)}>
+              <${Icon} name="edit" />
+            </button>
+            <button class="btn btn-icon btn-sm btn-danger" title=${t("downloads_cat_delete")} onClick=${() => remove(c)}>
+              <${Icon} name="cancel" />
+            </button>`}
+        </td>`}
+    </tr>`;
+
+  return html`
+    <div class="card">
+      <div class="cat-panel-header">
+        <h3>${t("downloads_cat_title")}</h3>
+        <div class="spacer"></div>
+        ${isGuest ? null : html`
+          <button class="btn btn-sm admin-only" type="button" onClick=${openCreate}>
+            ${t("downloads_cat_add")}
+          </button>`}
+      </div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>${t("downloads_cat_name")}</th><th>${t("downloads_cat_comment")}</th><th>${t("downloads_cat_incoming_dir")}</th>
+              <th>${t("downloads_cat_priority")}</th><th>${t("downloads_cat_color")}</th>
+              ${isGuest ? null : html`<th class="admin-only">${t("downloads_cat_actions")}</th>`}
+            </tr>
+          </thead>
+          <tbody>${loadErr ? null : categories.map(row)}</tbody>
+        </table>
+        ${loadErr ? html`<div class="table-empty"><${Placeholder} kind="error">${loadErr}<//></div>`
+          : categories.length ? null
+            : html`<div class="table-empty"><${Placeholder} kind="info">${t("downloads_cat_empty")}<//></div>`}
+      </div>
+    </div>
+
+    ${formOpen && !isGuest ? html`
+      <div class="modal-overlay" onClick=${(e) => { if (e.target === e.currentTarget) setFormOpen(false); }}>
+        <div class="modal">
+          <form onSubmit=${save}>
+            <div class="modal-header">
+              <h3>${editing !== null ? t("downloads_cat_edit_title") : t("downloads_cat_add")}</h3>
+            </div>
+            <div class="form-grid form-grid-2">
+              ${field(t("downloads_cat_name"), html`<input class="input" name="category_name" placeholder=${t("downloads_cat_name_ph")} required value=${name} onInput=${(e) => setName(e.target.value)} />`)}
+              ${field(t("downloads_cat_comment"), html`<input class="input" name="category_comment" placeholder=${t("downloads_cat_comment_ph")} value=${comment} onInput=${(e) => setComment(e.target.value)} />`)}
+              ${field(t("downloads_cat_path"), html`<input class="input" name="category_incoming" placeholder=${t("downloads_cat_incoming_path_ph")} required value=${path} onInput=${(e) => setPath(e.target.value)} />`)}
+              ${field(t("downloads_cat_priority"), html`<select class="input" name="category_priority" value=${prio} onChange=${(e) => setPrio(e.target.value)}>${PRIORITIES.map(([v, l]) => html`<option value=${v}>${l}</option>`)}</select>`)}
+              ${field(t("downloads_cat_color"), html`<input class="input" name="category_color" type="color" value=${color} onInput=${(e) => setColor(e.target.value)} />`)}
+            </div>
+            <div class="modal-actions">
+              <button class="btn" type="button" onClick=${() => setFormOpen(false)}>${t("downloads_cat_cancel")}</button>
+              <button class="btn btn-primary" type="submit">${editing !== null ? t("downloads_cat_save") : t("downloads_cat_create")}</button>
+            </div>
+          </form>
+        </div>
+      </div>` : null}`;
+}
+
+function field(label, control) {
+  return html`<div class="field"><label>${label}</label>${control}</div>`;
+}
+function prioLabel(p) {
+  const f = PRIORITIES.find(([v]) => v === p);
+  return f ? f[1] : (p || "");
+}

@@ -1,0 +1,11 @@
+.gradle/
+build/
+**/build/
+**/.cxx/
+native-core/.android-deps/
+local.properties
+*.iml
+.idea/
+captures/
+*.apk
+*.aab
