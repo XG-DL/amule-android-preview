@@ -1,3 +1,22 @@
+diff --git a/cmake/upnp.cmake b/cmake/upnp.cmake
+index 5a1a730a5..a5edbdbc9 100644
+--- a/cmake/upnp.cmake
++++ b/cmake/upnp.cmake
+@@ -36,6 +36,14 @@ unset (_upnp_skip_config)
+ 
+ if (UPNP_CONFIG)
+ 	set (LIBUPNP_VERSION ${UPNP_VERSION})
++	# Android packages pupnp as static archives. Keep the existing aMule target
++	# name so core and web-server consumers inherit the static target and its
++	# transitive IXML/thread dependencies from pupnp's exported config.
++	if (ANDROID AND TARGET UPNP::Static AND NOT TARGET UPNP::Shared)
++		add_library (UPNP::Shared INTERFACE IMPORTED GLOBAL)
++		set_property (TARGET UPNP::Shared PROPERTY
++			INTERFACE_LINK_LIBRARIES UPNP::Static)
++	endif()
+ endif()
+ 
+ if (NOT UPNP_CONFIG)
 diff --git a/src/OtherFunctions.cpp b/src/OtherFunctions.cpp
 index 0011dba8f..13fff1f7d 100644
 --- a/src/OtherFunctions.cpp

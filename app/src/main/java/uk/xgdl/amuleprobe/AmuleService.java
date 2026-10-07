@@ -6,15 +6,21 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.Context;
 import android.content.pm.ServiceInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.BufferedReader;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -34,11 +40,17 @@ public final class AmuleService extends Service {
     private volatile Process api;
     private volatile boolean starting;
     private volatile ScheduledExecutorService downloadExporter;
+    private WifiManager.MulticastLock multicastLock;
 
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
+        WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (wifi != null) {
+            multicastLock = wifi.createMulticastLock("aMule-UPnP-discovery");
+            multicastLock.setReferenceCounted(false);
+        }
     }
 
     @Override
@@ -76,6 +88,12 @@ public final class AmuleService extends Service {
             if (!config.mkdirs() && !config.isDirectory()) throw new IOException("Cannot create aMule data folder");
             downloads.mkdirs();
             temp.mkdirs();
+            // Wi-Fi filters multicast packets unless the app holds this lock;
+            // pupnp uses multicast SSDP discovery to find the UPnP gateway.
+            // Hold it only when the saved aMule configuration enables UPnP.
+            if (isUpnpEnabled(config) && multicastLock != null && !multicastLock.isHeld()) {
+                multicastLock.acquire();
+            }
             copyAssets("webui", new File(getFilesDir(), "webui"));
 
             String ecPassword = randomSecret();
@@ -128,6 +146,7 @@ public final class AmuleService extends Service {
             stopProcess(daemon);
             api = null;
             daemon = null;
+            if (multicastLock != null && multicastLock.isHeld()) multicastLock.release();
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putBoolean(READY, false).putString(LAST_ERROR, error.getMessage()).apply();
             updateNotification("aMule could not start: " + error.getMessage());
@@ -159,6 +178,7 @@ public final class AmuleService extends Service {
         stopProcess(daemon);
         api = null;
         daemon = null;
+        if (multicastLock != null && multicastLock.isHeld()) multicastLock.release();
         stopForeground(STOP_FOREGROUND_REMOVE);
     }
 
@@ -177,6 +197,25 @@ public final class AmuleService extends Service {
                 android.util.Log.e("aMuleExport", "Could not scan completed downloads", error);
             }
         }, 10, 15, TimeUnit.SECONDS);
+    }
+
+    private boolean isUpnpEnabled(File config) throws IOException {
+        File preferences = new File(config, "amule.conf");
+        if (!preferences.isFile()) return false;
+        boolean inEmuleSection = false;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(preferences), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.startsWith("[") && line.endsWith("]")) {
+                    inEmuleSection = "[eMule]".equals(line);
+                } else if (inEmuleSection && line.startsWith("UPnPEnabled=")) {
+                    return "1".equals(line.substring("UPnPEnabled=".length()).trim());
+                }
+            }
+        }
+        return false;
     }
 
     private static void stopProcess(Process process) {
@@ -277,6 +316,7 @@ public final class AmuleService extends Service {
     @Override
     public void onDestroy() {
         stopCore();
+        if (multicastLock != null && multicastLock.isHeld()) multicastLock.release();
         super.onDestroy();
     }
 

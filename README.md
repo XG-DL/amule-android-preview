@@ -4,7 +4,7 @@ An Android package that runs aMule's native daemon on the phone and presents aMu
 
 | Item | Current status |
 |---|---|
-| Android app | Version 0.1.1, debug build |
+| Android app | Version 0.1.2, debug build |
 | Supported ABI | `arm64-v8a` only |
 | Minimum Android API | 33 (Android 13) |
 | Target Android API | 35 |
@@ -14,15 +14,23 @@ An Android package that runs aMule's native daemon on the phone and presents aMu
 
 ## Screenshots
 
-Captured from the running app on the tested phone, in landscape orientation.
+Captured from the running app on the tested phone in landscape and portrait orientations.
 
 ### Networks — Kad
 
 ![aMule Android Networks screen showing Kad status and node graph](screenshots/networks-kad.png)
 
+### Searches
+
+![aMule Android search form and results](screenshots/searches.png)
+
 ### Downloads
 
 ![aMule Android Downloads screen](screenshots/downloads.png)
+
+### Active downloads
+
+![aMule Android active downloads](screenshots/downloads-active.png)
 
 ### Preferences — Web UI
 
@@ -35,7 +43,7 @@ The Android wrapper starts two native aMule programs as child processes:
 1. `amuled` runs the eD2k/Kad client and stores its configuration and working files in the app's private storage.
 2. `amuleapi` serves the bundled aMule Web UI and its REST API on `127.0.0.1:4713`. The wrapper connects the WebView to this local address and creates a local authenticated session.
 
-Both programs run under an Android foreground service. Android displays a persistent notification while the service is active; its **Stop** action terminates the API and daemon. The Android app needs Internet access for aMule's network traffic. The Web API is configured for loopback access, rather than a LAN listener.
+Both programs run under an Android foreground service. Android displays a persistent notification while the service is active; its **Stop** action terminates the API and daemon. The Android app needs Internet access for aMule's network traffic. The Web API is configured for loopback access, rather than a LAN listener. When saved aMule preferences enable UPnP, the service holds Android's Wi-Fi multicast lock so pupnp can receive SSDP discovery packets; the lock is released when the service stops.
 
 The WebView talks to the local API over HTTP on `127.0.0.1`; the Android manifest permits cleartext traffic for this local connection. The API itself is configured to listen only on loopback.
 
@@ -43,7 +51,7 @@ aMule's configuration, incomplete files (`Temp`) and active downloads live in ap
 
 The app packages the responsive aMule Web UI with small mobile layout and chart-label adjustments. The phone displays it in a WebView.
 
-The included core build has IPv6, UPnP, IP geolocation, uTP, QUIC and aMule's native gettext catalogs disabled. These are build choices in this preview, not a claim that Android cannot support them. In particular, this build does not provide uTP or UPnP port mapping. The Web UI has its own bundled translations and remains separate from the native gettext catalogs.
+The included core build enables aMule's UPnP port mapping, which is off by default in aMule preferences and can be enabled under **Preferences → Connection**. Restart the app after changing that option; aMule initializes its UPnP control point when the daemon starts. It maps the P2P TCP and UDP ports through a compatible local router; it does not map the loopback-only Web API or External Connections port. IPv6, IP geolocation, experimental uTP, QUIC and native gettext catalogs remain disabled in this preview; the Web UI has its own bundled translations.
 
 ## What works in this preview
 
@@ -51,10 +59,10 @@ The included core build has IPv6, UPnP, IP geolocation, uTP, QUIC and aMule's na
 - Keeps the daemon running in the foreground service when the screen is closed.
 - Shows the Web UI areas available in aMule's web client: Networks, Searches, Downloads, Shared files, Clients, Messages, Statistics, Preferences and About.
 - Uses the aMule Web UI for configuration; settings shown there are those implemented by the Web API.
+- Includes native UPnP support for mapping aMule's P2P TCP and UDP ports on compatible LAN routers. Router discovery and mapping have been tested on the device.
 - Moves completed files from aMule's private Incoming directory to `Downloads/aMule/Complete/` on supported Android versions (API 33 and later), then keeps that folder in aMule's shared-directory list so completed files remain available for sharing.
 - Includes tested layout adjustments for short landscape screens and Kad graph labels.
 
-Network reachability depends on the user's network and port-forwarding setup, as with aMule generally.
 
 ## Build and install the Android app
 
@@ -94,15 +102,13 @@ Allow notifications when Android asks. The notification is how Android indicates
 
 ## Native aMule source and rebuilding the core
 
-The included native executables were built from aMule commit [`f1d4b19ed01d07c6509d2d751219e4a1405c661c`](https://github.com/amule-org/amule/commit/f1d4b19ed01d07c6509d2d751219e4a1405c661c), plus the Android and Web UI patch in [native-core/android-core.patch](native-core/android-core.patch). The patch changes Android argument and password handling, Android certificate bundle setup, and the mobile Web UI layout and graph labels. [native-core/README.md](native-core/README.md) records the native build inputs and binary identifiers.
+The included native executables were built from aMule commit [`f1d4b19ed01d07c6509d2d751219e4a1405c661c`](https://github.com/amule-org/amule/commit/f1d4b19ed01d07c6509d2d751219e4a1405c661c), plus the Android and Web UI patch in [native-core/android-core.patch](native-core/android-core.patch). The patch changes Android argument and password handling, Android certificate bundle setup, the Android-compatible static UPnP target, and the mobile Web UI layout and graph labels. [native-core/README.md](native-core/README.md) records the native build inputs and binary identifiers.
 
-Rebuilding the APK is a single Gradle command above. Rebuilding the native executables is a separate cross-compilation step. [native-core/build-android-deps.sh](native-core/build-android-deps.sh) downloads SHA-256-pinned archives and builds wxWidgets, Boost headers, Crypto++, curl and OpenSSL for ARM64 Android, then builds the aMule binaries. It requires Linux x86-64, Android NDK `28.2.13676358`, CMake 3.28.3 or newer, and the patched source checkout described in [native-core/README.md](native-core/README.md). The script keeps third-party sources and generated files outside the tracked project files under `native-core/.android-deps/`; it does not replace the packaged binaries automatically.
+Rebuilding the APK is a single Gradle command above. Rebuilding the native executables is a separate cross-compilation step. [native-core/build-android-deps.sh](native-core/build-android-deps.sh) downloads SHA-256-pinned archives and builds wxWidgets, Boost headers, Crypto++, curl, OpenSSL and pupnp/libupnp for ARM64 Android, then builds the aMule binaries. It requires Linux x86-64, Android NDK `28.2.13676358`, CMake 3.28.3 or newer, and the patched source checkout described in [native-core/README.md](native-core/README.md). The script keeps third-party sources and generated files outside the tracked project files under `native-core/.android-deps/`; it does not replace the packaged binaries automatically.
 
 ## Testing record
 
-Manual smoke testing was performed on one ARM64 GrapheneOS phone on 6 October 2026. It covered app/service startup and stop, the main Web UI areas and preference subsections, safe-to-dismiss dialogs, a completed 5.1 MiB download, and the completed-file export. The checked Android log window contained no fatal crash or ANR entries. See [TESTING.md](TESTING.md) for exactly what was exercised and what remains untested.
-
-An earlier network check showed eD2k Low ID and firewalled Kad. uTP was disabled in this Android build, so this test says nothing about uTP connection behaviour; the optional experimental uTP build path has not been substantively tested.
+Manual smoke testing was performed on one ARM64 GrapheneOS phone on 7 October 2026. aMule discovered the local router's UPnP WAN service, added three P2P mappings, reached eD2k High ID and connected Kad without a firewall warning. A live port change and restoration also retained High ID. See [TESTING.md](TESTING.md) for the steps and remaining coverage limits.
 
 ## Known limits
 

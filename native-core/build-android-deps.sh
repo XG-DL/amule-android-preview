@@ -109,12 +109,16 @@ fetch openssl-3.5.9.tar.gz \
 fetch wxWidgets-3.3.3.tar.bz2 \
 	https://github.com/wxWidgets/wxWidgets/releases/download/v3.3.3/wxWidgets-3.3.3.tar.bz2 \
 	81b09d6dd9f1ed9301f8c55a968a488d0491f264dc2bab19a7e407ac67009482
+fetch pupnp-release-22.1.8.tar.gz \
+	https://codeload.github.com/pupnp/pupnp/tar.gz/refs/tags/release-22.1.8 \
+	abc191bd8f083c9ae73c93d9fa6ba051d54e086430da426c97ff7d989d581fec
 
 unpack boost_1_83_0.tar.bz2 "$sources/boost_1_83_0" boost/version.hpp
 unpack cryptopp-CRYPTOPP_8_9_0.zip "$sources/cryptopp-8.9.0" GNUmakefile-cross
 unpack curl-8.22.0.tar.xz "$sources/curl-8.22.0" CMakeLists.txt
 unpack openssl-3.5.9.tar.gz "$sources/openssl-3.5.9" Configure
 unpack wxWidgets-3.3.3.tar.bz2 "$sources/wxWidgets-3.3.3" configure
+unpack pupnp-release-22.1.8.tar.gz "$sources/pupnp-22.1.8" CMakeLists.txt
 
 openssl_src="$sources/openssl-3.5.9"
 openssl_prefix="$prefix/openssl"
@@ -198,6 +202,29 @@ wx_prefix="$prefix/wx"
 	make install
 )
 
+pupnp_src="$sources/pupnp-22.1.8"
+pupnp_prefix="$prefix/pupnp"
+pupnp_build="$builds/pupnp"
+cmake -S "$pupnp_src" -B "$pupnp_build" \
+	-DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+	-DANDROID_ABI=arm64-v8a \
+	-DANDROID_PLATFORM="android-$api" \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_C_FLAGS=-DINCLUDE_DEVICE_APIS \
+	-DCMAKE_INSTALL_PREFIX="$pupnp_prefix" \
+	-DCMAKE_INSTALL_LIBDIR=lib \
+	-DUPNP_BUILD_SHARED=OFF \
+	-DUPNP_BUILD_STATIC=ON \
+	-DUPNP_BUILD_SAMPLES=OFF \
+	-DUPNP_ENABLE_TESTING=OFF \
+	-DUPNP_ENABLE_TESTING_INTEGRATION=OFF \
+	-DUPNP_ENABLE_IPV6=OFF \
+	-DUPNP_ENABLE_OPEN_SSL=OFF \
+	-DUPNP_ENABLE_BACKTRACE=OFF \
+	-DUPNP_ENABLE_WEBSERVER=ON
+cmake --build "$pupnp_build" --parallel "${BUILD_JOBS:-2}"
+cmake --install "$pupnp_build"
+
 if [[ -d "$prefix/include/boost" ]]; then
 	printf 'Boost headers already installed at %s/include/boost; leaving them in place.\n' "$prefix" >&2
 else
@@ -212,6 +239,7 @@ cp "$repo_root/native-core/boost-cmake/BoostConfig.cmake" \
 AMULE_BUILD_DIR="${AMULE_BUILD_DIR:-$AMULE_SOURCE_DIR/build-android}" \
 AMULE_SOURCE_DIR="$AMULE_SOURCE_DIR" \
 ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
+PUPNP_ROOT="$pupnp_prefix" \
 WX_CONFIG="$wx_prefix/bin/wx-config" \
 BOOST_INCLUDE_DIR="$prefix/include" \
 BOOST_CMAKE_DIR="$boost_cmake_dir" \

@@ -9,6 +9,7 @@ The aMule core is licensed under GPL-2.0-or-later; see [LICENSE.md](LICENSE.md).
 | Crypto++ | 8.9.0 | Boost Software License 1.0; see its included notice for additional attributions | [Crypto++](licenses/native/CryptoPP-License.txt) |
 | libcurl | 8.22.0 | curl license (MIT-style) | [curl](licenses/native/curl-COPYING.txt) |
 | OpenSSL | 3.5.9 | Apache License 2.0 | [OpenSSL](licenses/native/OpenSSL-LICENSE.txt) |
+| pupnp/libupnp and IXML | 22.1.8 | BSD-style 3-clause licence | [pupnp](licenses/native/pupnp-COPYING.txt) |
 | Expat (via wxWidgets) | bundled with wxWidgets 3.3.3 | MIT | [Expat](licenses/native/Expat-COPYING.txt) |
 | zlib | 1.3.0.1, Android NDK 28.2.13676358 | zlib license | [zlib notice](licenses/native/zlib-LICENSE.txt) |
 

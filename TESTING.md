@@ -6,11 +6,12 @@ This records manual checks of the Android preview build and the areas still awai
 
 - Device: Pixel 10 Pro XL, ARM64, GrapheneOS.
 - Device OS/API: Android 17, API 37.
-- App label: aMule Android Preview, version 0.1.
+- App label: aMule Android Preview, version 0.1.2.
 - Android minimum configured by the app: API 33.
-- APK built locally as a debug build. The APK packages the included ARM64 aMule binaries; this wrapper build does not compile the native core.
-- `./gradlew assembleDebug` completed successfully on the Linux development host with JDK 21 and Android SDK Platform 36. This checked the app/package build with the bundled binaries, not a clean-clone build or a native-core rebuild.
-- Test date: 2026-10-06.
+- APK built locally as a debug build, including newly rebuilt ARM64 `amuled` and `amuleapi` binaries with UPnP enabled.
+- `./gradlew assembleDebug` completed successfully on the Linux development host with JDK 21 and Android SDK Platform 36.
+- Native core cross-build completed with the pinned Linux x86-64 / NDK 28.2.13676358 toolchain and pupnp 22.1.8.
+- Test date: 2026-10-07.
 
 ## Exercised
 
@@ -24,11 +25,22 @@ This records manual checks of the Android preview build and the areas still awai
 - Mobile layout in short landscape orientation and Kad chart labels.
 - Recent Android log checked for FATAL and ANR entries; none were found in the checked log window.
 
+## UPnP port-mapping test
+
+The phone was connected to the local router over Wi-Fi. In **Preferences → Connection**, UPnP was enabled and the app service was restarted so the daemon could initialise its control point.
+
+- The daemon log reported an Internet Gateway Device and subscribed to its `WANIPConnection:1` service.
+- The router reported two existing mappings before aMule's requests and five afterwards. This is consistent with aMule adding the three P2P mappings: TCP listen, server UDP (TCP+3), and extended client UDP. The EC and Web API ports are not requested by this configuration.
+- aMule connected to eD2k with High ID and Kad reached `Connected (ok)`.
+- The TCP and UDP ports were changed live to TCP `48321` and client UDP `48325` (server UDP `48324`), then restored to TCP `4662` and client UDP `4672`. During each replacement the router reported two entries while old mappings were removed, then five after the new mappings were added; eD2k returned to High ID.
+
+This verifies local-router discovery, aMule's UPnP request path, eD2k reachability, Kad reaching its healthy status, and mapping refresh across the tested live port changes on this one router/device combination. The mapping count is router-reported; the router's administration page was not independently captured. Other routers have not been tested.
+
 ## Observed result from the earlier copy-based build
 
 The service started the daemon/API and the UI was reachable. The download completed and appeared under `Downloads/aMule/Complete/`; the original remained in aMule's Incoming directory. That test predates the move-and-share change documented in the README. Stop ended the native processes, and a later app launch started them again. The short-landscape pane layout and chart spacing changes appeared as intended in the observed screens.
 
-The network test showed eD2k Low ID and firewalled Kad. uTP was disabled in the Android binary, so this run could not observe or verify uTP. The Low ID and firewalled status describe the network conditions in this test.
+An earlier test showed eD2k Low ID and firewalled Kad. uTP remains disabled in the Android binary, so no uTP behaviour has been verified.
 
 ## Not covered / next checks
 
@@ -39,7 +51,8 @@ The network test showed eD2k Low ID and firewalled Kad. uTP was disabled in the 
 - Sustained transfer, multiple simultaneous transfers, pause/resume, and sharing after export.
 - uTP operation or a uTP stream across a live port change; uTP was disabled in this Android binary.
 - Reproducible build from a clean checkout and independent installation/testing by another person.
-- The newer move-and-share flow, including old-copy migration, aMule's shared-directory registration and the refreshed Shared Files list; it has built successfully but has not yet been re-tested on the phone.
+- The latest move-and-share flow, including old-copy migration, aMule's shared-directory registration and the refreshed Shared Files list; it has built successfully but has not yet been re-tested on the phone.
+- UPnP behaviour on other routers.
 
 ## Suggested reviewer checklist
 

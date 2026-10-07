@@ -4,6 +4,7 @@ set -euo pipefail
 required=(
   AMULE_SOURCE_DIR
   ANDROID_NDK_HOME
+  PUPNP_ROOT
   WX_CONFIG
   BOOST_INCLUDE_DIR
   CRYPTOPP_INCLUDE_DIR
@@ -19,6 +20,7 @@ done
 for path in \
   "$AMULE_SOURCE_DIR/CMakeLists.txt" \
   "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+  "$PUPNP_ROOT/lib/cmake/UPNP/UPNPConfig.cmake" \
   "$WX_CONFIG" \
   "$BOOST_INCLUDE_DIR/boost/version.hpp" \
   "$CRYPTOPP_INCLUDE_DIR/cryptopp/config.h" \
@@ -63,12 +65,13 @@ cmake -S "$AMULE_SOURCE_DIR" -B "$build_dir" \
   -DBUILD_DAEMON=ON \
   -DBUILD_AMULEAPI=ON \
   -DENABLE_IPV6=OFF \
-  -DENABLE_UPNP=OFF \
+  -DENABLE_UPNP=ON \
   -DENABLE_IP2COUNTRY=OFF \
   -DENABLE_UTP=OFF \
   -DENABLE_QUIC=OFF \
   -DENABLE_NLS=OFF \
   -DwxWidgets_CONFIG_EXECUTABLE="$WX_CONFIG" \
+  -DUPNP_DIR="$PUPNP_ROOT/lib/cmake/UPNP" \
   -DCRYPTOPP_INCLUDE_DIR="$CRYPTOPP_INCLUDE_DIR" \
   -DCRYPTOPP_CONFIG_FILE="$CRYPTOPP_INCLUDE_DIR/cryptopp/config.h" \
   -DCRYPTOPP_VERSION=890 \
