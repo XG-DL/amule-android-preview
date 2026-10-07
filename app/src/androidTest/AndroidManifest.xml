@@ -1,0 +1,3 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="uk.xgdl.amuleprobe.permission.RUN_EXPORT_CRASH_TEST" />
+</manifest>

@@ -4,10 +4,10 @@ An Android package that runs aMule's native daemon on the phone and presents aMu
 
 | Item | Current status |
 |---|---|
-| Android app | Version 0.1.2, debug build |
+| Android app | Version 0.1.3, debug build |
 | Supported ABI | `arm64-v8a` only |
 | Minimum Android API | 33 (Android 13) |
-| Target Android API | 35 |
+| Target Android API | 36 (Android 16) |
 | Interface | aMule Web UI inside an Android WebView |
 | aMule core | Android ARM64 `amuled` and `amuleapi` binaries included |
 | Tested device | Pixel 10 Pro XL, ARM64, GrapheneOS (Android 17 / API 37) |
@@ -43,7 +43,7 @@ The Android wrapper starts two native aMule programs as child processes:
 1. `amuled` runs the eD2k/Kad client and stores its configuration and working files in the app's private storage.
 2. `amuleapi` serves the bundled aMule Web UI and its REST API on `127.0.0.1:4713`. The wrapper connects the WebView to this local address and creates a local authenticated session.
 
-Both programs run under an Android foreground service. Android displays a persistent notification while the service is active; its **Stop** action terminates the API and daemon. The Android app needs Internet access for aMule's network traffic. The Web API is configured for loopback access, rather than a LAN listener. When saved aMule preferences enable UPnP, the service holds Android's Wi-Fi multicast lock so pupnp can receive SSDP discovery packets; the lock is released when the service stops.
+Both programs run under an Android foreground service. Android displays a persistent notification while the service is active; its **Stop** action terminates the API and daemon. The service monitors the child processes and local API listener: it restarts a failed API process without restarting a healthy daemon, and retries the core if the daemon exits, using a growing delay after repeated failures. The notification also reports whether Android currently has a validated internet route. The Android app needs Internet access for aMule's network traffic. The Web API is configured for loopback access, rather than a LAN listener. When saved aMule preferences enable UPnP, the service holds Android's Wi-Fi multicast lock so pupnp can receive SSDP discovery packets; the lock is released when the service stops.
 
 The WebView talks to the local API over HTTP on `127.0.0.1`; the Android manifest permits cleartext traffic for this local connection. The API itself is configured to listen only on loopback.
 
@@ -51,12 +51,14 @@ aMule's configuration, incomplete files (`Temp`) and active downloads live in ap
 
 The app packages the responsive aMule Web UI with small mobile layout and chart-label adjustments. The phone displays it in a WebView.
 
-The included core build enables aMule's UPnP port mapping, which is off by default in aMule preferences and can be enabled under **Preferences → Connection**. Restart the app after changing that option; aMule initializes its UPnP control point when the daemon starts. It maps the P2P TCP and UDP ports through a compatible local router; it does not map the loopback-only Web API or External Connections port. IPv6, IP geolocation, experimental uTP, QUIC and native gettext catalogs remain disabled in this preview; the Web UI has its own bundled translations.
+The included core build enables aMule's UPnP port mapping, which is off by default in aMule preferences and can be enabled under **Preferences → Connection**. Restart the app after changing that option; aMule initializes its UPnP control point when the daemon starts. It maps the P2P TCP and UDP ports through a compatible local router; it does not map the loopback-only Web API or External Connections port. IPv6 remains disabled because the pinned aMule source labels IPv6 TCP admission experimental and says IPv6 identity handling is incomplete. IP geolocation, experimental uTP, QUIC and native gettext catalogs also remain disabled; the Web UI has its own bundled translations.
 
 ## What works in this preview
 
 - Starts and stops the native daemon and Web API from the Android app.
 - Keeps the daemon running in the foreground service when the screen is closed.
+- Reports network availability in the foreground notification and recovers the API or daemon if either child process exits unexpectedly.
+- Checks free space on the aMule data volume once a minute and warns in the notification below 1 GiB free; it does not stop or delete downloads.
 - Shows the Web UI areas available in aMule's web client: Networks, Searches, Downloads, Shared files, Clients, Messages, Statistics, Preferences and About.
 - Uses the aMule Web UI for configuration; settings shown there are those implemented by the Web API.
 - Includes native UPnP support for mapping aMule's P2P TCP and UDP ports on compatible LAN routers. Router discovery and mapping have been tested on the device.
@@ -110,12 +112,14 @@ Rebuilding the APK is a single Gradle command above. Rebuilding the native execu
 
 Manual smoke testing was performed on one ARM64 GrapheneOS phone on 7 October 2026. aMule discovered the local router's UPnP WAN service, added three P2P mappings, reached eD2k High ID and connected Kad without a firewall warning. A live port change and restoration also retained High ID. See [TESTING.md](TESTING.md) for the steps and remaining coverage limits.
 
+Run `scripts/android-smoke-test.sh` with one authorised Android device connected to check the foreground service, daemon, local API and its download/shared-file endpoints. The script uses Python 3 and the debug APK's `run-as` access; it opens a temporary ADB forward to the loopback-only API and removes it when finished. Set `AMULE_EXPECT_SHARED` to a filename fragment to check that a particular completed test file appears in the shared list.
+
 ## Known limits
 
 - ARM64 only. Other device architectures have no bundled native binaries.
 - Tested on one GrapheneOS phone, not a range of Android versions or manufacturers.
 - No automated Android UI test suite is included; interaction testing to date is manual.
-- Reboot recovery, Android process reclamation, battery-saver behaviour, long background transfers and all preference effects have not been verified.
+- A ten-minute screen-off interval, a brief full-network interruption, an app stop/relaunch and a device reboot have been checked on one phone. aMule does not auto-start at boot; the user must open it after reboot. Android process reclamation, battery-saver behaviour, extended transfers and all preference effects have not been verified.
 - The native dependency and aMule cross-build is automated for Linux x86-64 by `native-core/build-android-deps.sh`. It is separate from the Android wrapper/APK build and has not yet been exercised on other host operating systems or architectures.
 
 ## Licensing and project status

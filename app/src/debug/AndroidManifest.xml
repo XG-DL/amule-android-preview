@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission
+        android:name="uk.xgdl.amuleprobe.permission.RUN_EXPORT_CRASH_TEST"
+        android:protectionLevel="signature" />
+    <application>
+        <service
+            android:name=".ExportInterruptionTestService"
+            android:exported="true"
+            android:permission="uk.xgdl.amuleprobe.permission.RUN_EXPORT_CRASH_TEST"
+            android:process=":exportinterruption" />
+    </application>
+</manifest>

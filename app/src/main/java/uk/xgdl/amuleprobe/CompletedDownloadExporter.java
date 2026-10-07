@@ -19,8 +19,10 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -32,15 +34,23 @@ final class CompletedDownloadExporter {
     private static final String TAG = "aMuleExport";
     private static final String RELATIVE_PATH = Environment.DIRECTORY_DOWNLOADS + "/aMule/Complete/";
     private static final String PREF_EXPORTED = "exported_";
+    private static final String PREF_PENDING_EXPORT_URI = "pending_export_uri_";
+    private static final String PREF_PENDING_EXPORT_NAME = "pending_export_name_";
     private static final String PREF_SHARED_RELOAD_PENDING = "shared_reload_pending";
 
     private final Context context;
     private final File incoming;
+    private final OutputStreamOpener outputStreamOpener;
     private final Map<String, Fingerprint> candidates = new HashMap<>();
 
     CompletedDownloadExporter(Context context, File incoming) {
+        this(context, incoming, (resolver, destination) -> resolver.openOutputStream(destination, "w"));
+    }
+
+    CompletedDownloadExporter(Context context, File incoming, OutputStreamOpener outputStreamOpener) {
         this.context = context.getApplicationContext();
         this.incoming = incoming;
+        this.outputStreamOpener = outputStreamOpener;
     }
 
     void scan() {
@@ -85,7 +95,13 @@ final class CompletedDownloadExporter {
             }
 
             try {
-                move(file, path, marker);
+                Uri existing = findMatchingExport(file);
+                if (existing == null) {
+                    move(file, path, marker);
+                } else {
+                    persistExportedMarker(path, marker);
+                    movePreviouslyExported(file, path, marker, existing);
+                }
                 candidates.remove(path);
             } catch (Exception error) {
                 previous.stableScans = 1;
@@ -104,24 +120,39 @@ final class CompletedDownloadExporter {
     private void move(File source, String sourcePath, String marker) throws Exception {
         ContentResolver resolver = context.getContentResolver();
         Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-        String displayName = uniqueDisplayName(resolver, collection, source.getName());
-
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Downloads.DISPLAY_NAME, displayName);
-        String mime = android.webkit.MimeTypeMap.getSingleton()
-                .getMimeTypeFromExtension(extensionOf(displayName));
-        values.put(MediaStore.Downloads.MIME_TYPE, mime == null ? "application/octet-stream" : mime);
-        values.put(MediaStore.Downloads.RELATIVE_PATH, RELATIVE_PATH);
-        values.put(MediaStore.Downloads.IS_PENDING, 1);
-
-        Uri destination = resolver.insert(collection, values);
-        if (destination == null) throw new IllegalStateException("Android could not create the Downloads file");
+        String key = sha256(sourcePath);
+        android.content.SharedPreferences preferences = context.getSharedPreferences(
+                AmuleService.PREFS, Context.MODE_PRIVATE);
+        String pendingUri = preferences.getString(PREF_PENDING_EXPORT_URI + key, null);
+        Uri destination;
+        String displayName;
+        if (pendingUri != null) {
+            destination = Uri.parse(pendingUri);
+            displayName = preferences.getString(PREF_PENDING_EXPORT_NAME + key, source.getName());
+            Log.i(TAG, "Resuming incomplete Downloads export: " + displayName);
+        } else {
+            displayName = uniqueDisplayName(resolver, collection, source.getName());
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Downloads.DISPLAY_NAME, displayName);
+            String mime = android.webkit.MimeTypeMap.getSingleton()
+                    .getMimeTypeFromExtension(extensionOf(displayName));
+            values.put(MediaStore.Downloads.MIME_TYPE, mime == null ? "application/octet-stream" : mime);
+            values.put(MediaStore.Downloads.RELATIVE_PATH, RELATIVE_PATH);
+            values.put(MediaStore.Downloads.IS_PENDING, 1);
+            destination = resolver.insert(collection, values);
+            if (destination == null) throw new IllegalStateException("Android could not create the Downloads file");
+            if (!preferences.edit().putString(PREF_PENDING_EXPORT_URI + key, destination.toString())
+                    .putString(PREF_PENDING_EXPORT_NAME + key, displayName).commit()) {
+                resolver.delete(destination, null, null);
+                throw new IllegalStateException("Could not save the pending Downloads export");
+            }
+        }
 
         try {
             long copied = 0;
             MessageDigest copiedDigest = MessageDigest.getInstance("SHA-256");
             try (InputStream input = new FileInputStream(source);
-                 OutputStream output = resolver.openOutputStream(destination, "w")) {
+                 OutputStream output = outputStreamOpener.open(resolver, destination)) {
                 if (output == null) throw new IllegalStateException("Android could not open the Downloads file");
                 byte[] buffer = new byte[64 * 1024];
                 int count;
@@ -147,8 +178,13 @@ final class CompletedDownloadExporter {
             if (resolver.update(destination, ready, null, null) != 1) {
                 throw new IllegalStateException("Android could not finish publishing the Downloads file");
             }
+            persistExportedMarker(sourcePath, marker);
         } catch (Exception error) {
-            resolver.delete(destination, null, null);
+            try {
+                resolver.delete(destination, null, null);
+            } finally {
+                clearPendingExport(sourcePath);
+            }
             throw error;
         }
 
@@ -159,7 +195,11 @@ final class CompletedDownloadExporter {
             finishMove(source, sourcePath, marker, token);
             Log.i(TAG, "Moved completed file to Downloads/aMule/Complete: " + displayName);
         } catch (Exception error) {
-            resolver.delete(destination, null, null);
+            try {
+                resolver.delete(destination, null, null);
+            } finally {
+                clearPendingExport(sourcePath);
+            }
             throw error;
         } finally {
             if (token != null) logout(token);
@@ -173,6 +213,10 @@ final class CompletedDownloadExporter {
                     .remove(PREF_EXPORTED + sha256(sourcePath)).commit();
             return;
         }
+        movePreviouslyExported(source, sourcePath, marker, existing);
+    }
+
+    private void movePreviouslyExported(File source, String sourcePath, String marker, Uri existing) throws Exception {
         String token = login();
         try {
             ensureDestinationDirectoryShared(token, existing);
@@ -181,6 +225,21 @@ final class CompletedDownloadExporter {
         } finally {
             logout(token);
         }
+    }
+
+    private void persistExportedMarker(String sourcePath, String marker) {
+        if (!context.getSharedPreferences(AmuleService.PREFS, Context.MODE_PRIVATE).edit()
+                .putString(PREF_EXPORTED + sha256(sourcePath), marker).commit()) {
+            throw new IllegalStateException("Could not persist the published-file recovery marker");
+        }
+    }
+
+    private void clearPendingExport(String sourcePath) {
+        String key = sha256(sourcePath);
+        context.getSharedPreferences(AmuleService.PREFS, Context.MODE_PRIVATE).edit()
+                .remove(PREF_PENDING_EXPORT_URI + key)
+                .remove(PREF_PENDING_EXPORT_NAME + key)
+                .commit();
     }
 
     private void finishMove(File source, String sourcePath, String marker, String token) throws Exception {
@@ -197,6 +256,7 @@ final class CompletedDownloadExporter {
         }
         context.getSharedPreferences(AmuleService.PREFS, Context.MODE_PRIVATE).edit()
                 .remove(PREF_EXPORTED + sha256(sourcePath)).commit();
+        clearPendingExport(sourcePath);
         retrySharedReload(token);
     }
 
@@ -437,5 +497,9 @@ final class CompletedDownloadExporter {
             this.marker = marker;
             this.stableScans = stableScans;
         }
+    }
+
+    interface OutputStreamOpener {
+        OutputStream open(ContentResolver resolver, Uri destination) throws Exception;
     }
 }

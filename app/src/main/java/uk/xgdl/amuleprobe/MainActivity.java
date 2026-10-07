@@ -3,11 +3,14 @@ package uk.xgdl.amuleprobe;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.graphics.Insets;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
@@ -22,6 +25,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 
 public final class MainActivity extends Activity {
     private static final String WEB_URL = "http://127.0.0.1:4713/";
@@ -31,10 +36,15 @@ public final class MainActivity extends Activity {
     private WebView webView;
     private int attempts;
     private boolean opening;
+    private final OnBackInvokedCallback backCallback = this::handleBack;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback);
+        }
         if (handleStopIntent(getIntent())) return;
         showStarting();
         if (Build.VERSION.SDK_INT >= 33
@@ -97,6 +107,7 @@ public final class MainActivity extends Activity {
         textParams.topMargin = 46;
         frame.addView(message, textParams);
         setContentView(frame);
+        applySystemBarInsets(frame);
     }
 
     private void checkReady() {
@@ -168,12 +179,20 @@ public final class MainActivity extends Activity {
         webView.getSettings().setDomStorageEnabled(true);
         webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient());
-        setContentView(webView);
+        FrameLayout container = new FrameLayout(this);
+        container.addView(webView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(container);
+        applySystemBarInsets(container);
         webView.loadUrl(WEB_URL);
     }
 
     @Override
     public void onBackPressed() {
+        handleBack();
+    }
+
+    private void handleBack() {
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
             return;
@@ -188,5 +207,25 @@ public final class MainActivity extends Activity {
                     finish();
                 })
                 .show();
+    }
+
+    private void applySystemBarInsets(View content) {
+        content.setOnApplyWindowInsetsListener((view, insets) -> {
+            int insetTypes = WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout();
+            Insets bars = insets.getInsets(insetTypes);
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return new WindowInsets.Builder(insets)
+                    .setInsets(insetTypes, Insets.NONE)
+                    .build();
+        });
+        content.requestApplyInsets();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
+        }
+        super.onDestroy();
     }
 }

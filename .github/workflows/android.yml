@@ -1,0 +1,50 @@
+name: Android build and tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Build the packaged APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Run exporter instrumentation tests on API 36
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          script: |
+            set -euo pipefail
+            ./gradlew --no-daemon clean assembleDebug assembleDebugAndroidTest -PandroidExporterTestHost=true
+            adb shell am instrument -w -r \
+              -e class uk.xgdl.amuleprobe.CompletedDownloadExporterTest \
+              uk.xgdl.amuleprobe.test/androidx.test.runner.AndroidJUnitRunner
+            ./gradlew --no-daemon assembleDebug
