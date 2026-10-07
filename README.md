@@ -43,7 +43,7 @@ The Android wrapper starts two native aMule programs as child processes:
 1. `amuled` runs the eD2k/Kad client and stores its configuration and working files in the app's private storage.
 2. `amuleapi` serves the bundled aMule Web UI and its REST API on `127.0.0.1:4713`. The wrapper connects the WebView to this local address and creates a local authenticated session.
 
-Both programs run under an Android foreground service. Android displays a persistent notification while the service is active; its **Stop** action terminates the API and daemon. The service monitors the child processes and local API listener: it restarts a failed API process without restarting a healthy daemon, and retries the core if the daemon exits, using a growing delay after repeated failures. The notification also reports whether Android currently has a validated internet route. The Android app needs Internet access for aMule's network traffic. The Web API is configured for loopback access, rather than a LAN listener. When saved aMule preferences enable UPnP, the service holds Android's Wi-Fi multicast lock so pupnp can receive SSDP discovery packets; the lock is released when the service stops.
+Both programs run under an Android foreground service. Android displays a persistent notification while the service is active; its **Stop** action terminates the API and daemon. The service monitors the child processes and local API listener: it restarts a failed API process without restarting a healthy daemon, and retries the core if the daemon exits, using a growing delay after repeated failures. The notification reports network availability and low-storage warnings. The Web API is configured for loopback access, rather than a LAN listener. When saved aMule preferences enable UPnP, the service holds Android's Wi-Fi multicast lock so pupnp can receive SSDP discovery packets; the lock is released when the service stops.
 
 The WebView talks to the local API over HTTP on `127.0.0.1`; the Android manifest permits cleartext traffic for this local connection. The API itself is configured to listen only on loopback.
 
@@ -65,6 +65,7 @@ The included core build enables aMule's UPnP port mapping, which is off by defau
 - Moves completed files from aMule's private Incoming directory to `Downloads/aMule/Complete/` on supported Android versions (API 33 and later), then keeps that folder in aMule's shared-directory list so completed files remain available for sharing.
 - Includes tested layout adjustments for short landscape screens and Kad graph labels.
 
+UPnP requires a compatible router with IGD enabled and reachable over the local network; mapping behaviour may vary between routers.
 
 ## Build and install the Android app
 

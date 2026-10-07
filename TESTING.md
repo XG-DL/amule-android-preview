@@ -64,7 +64,7 @@ This verifies local-router discovery, aMule's UPnP request path, eD2k reachabili
 
 The service started the daemon/API and the UI was reachable. The download completed and appeared under `Downloads/aMule/Complete/`; the original remained in aMule's Incoming directory. That test predates the move-and-share change documented in the README. Stop ended the native processes, and a later app launch started them again. The short-landscape pane layout and chart spacing changes appeared as intended in the observed screens.
 
-An earlier test showed eD2k Low ID and firewalled Kad. uTP remains disabled in the Android binary, so no uTP behaviour has been verified.
+uTP remains disabled in the Android binary, so no uTP behaviour has been verified.
 
 ## Not covered / next checks
 
