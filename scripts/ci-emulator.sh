@@ -38,6 +38,7 @@ fi
 
 # Install the real package and exercise its daemon, local API and service.
 install_apk "$full_apk"
+adb shell pm grant uk.xgdl.amuleprobe android.permission.POST_NOTIFICATIONS
 adb shell am start -n uk.xgdl.amuleprobe/.MainActivity
 smoke_log=${RUNNER_TEMP:-/tmp}/amule-ci-smoke.log
 for ((attempt = 1; attempt <= 24; attempt++)); do
@@ -48,4 +49,12 @@ for ((attempt = 1; attempt <= 24; attempt++)); do
     sleep 5
 done
 cat "$smoke_log" >&2
+adb shell run-as uk.xgdl.amuleprobe cat shared_prefs/amule_runtime.xml 2>/dev/null \
+    | python3 -c 'import sys, xml.etree.ElementTree as ET
+try:
+    root = ET.parse(sys.stdin).getroot()
+    error = next((item.text for item in root.findall("string") if item.get("name") == "last_error"), None)
+    print("Last app startup error:", error or "(none)")
+except Exception as failure:
+    print("Could not read the app startup error:", failure)' >&2 || true
 exit 1
