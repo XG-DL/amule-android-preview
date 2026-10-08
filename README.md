@@ -15,31 +15,21 @@ An Android package that runs aMule's native daemon on the phone. This branch int
 
 ## Screenshots
 
-The [native interface gallery](NATIVE-UI-EXPERIMENT.md#screenshots) shows the English Networks, Statistics, Search, Downloads, Appearance and Connection preferences screens captured on the Android 16 emulator.
+These are screenshots of the **native Android interface**, captured in English on the Android 16 emulator. Search and Downloads show their empty states after the temporary test downloads were removed.
 
-The screenshots below show the existing Web UI on the ARM64 phone.
+| Networks and Kad | Statistics |
+|---|---|
+| ![Native Networks screen showing eD2k and Kad status and a Kad graph](screenshots/native/networks.png) | ![Native Statistics screen showing transfer and connection graphs](screenshots/native/statistics.png) |
 
-Captured from the running app in landscape and portrait orientations.
+| Search | Downloads |
+|---|---|
+| ![Native Search screen with search type and optional filters](screenshots/native/search.png) | ![Native Downloads screen showing filters and download actions with an empty queue](screenshots/native/downloads.png) |
 
-### Networks — Kad
+| Appearance | Connection preferences |
+|---|---|
+| ![Native Appearance preferences showing the English interface option](screenshots/native/appearance.png) | ![Native Connection preferences showing editable daemon settings](screenshots/native/preferences-connection.png) |
 
-![aMule Android Networks screen showing Kad status and node graph](screenshots/networks-kad.png)
-
-### Searches
-
-![aMule Android search form and results](screenshots/searches.png)
-
-### Downloads
-
-![aMule Android Downloads screen](screenshots/downloads.png)
-
-### Active downloads
-
-![aMule Android active downloads](screenshots/downloads-active.png)
-
-### Preferences — Web UI
-
-![aMule Android Preferences screen showing Web UI settings](screenshots/preferences-webui.png)
+Screenshots of the earlier WebView interface are available on the [main branch](https://github.com/XG-DL/amule-android-preview/tree/main/screenshots).
 
 ## How the app works
 
