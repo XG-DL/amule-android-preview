@@ -24,6 +24,6 @@ The comparison should be empty unless an interface branch is deliberately testin
 
 ## Build and check
 
-Build either branch with `./gradlew assembleDebug`. CI builds the packaged APK, runs exporter instrumentation tests on an Android 16/API 36 emulator, and then installs the packaged APK to check its daemon, local API and foreground service. See [TESTING.md](TESTING.md) for the physical-device review record and remaining coverage.
+Build either branch with `./gradlew assembleDebug`. CI builds the packaged APK, runs exporter instrumentation tests on an Android 16/API 36 emulator, and then installs the packaged APK to check its daemon, local API and foreground service. A passing run retains the tested APK and its SHA-256 checksum as a downloadable Actions artifact for 30 days. See [TESTING.md](TESTING.md) for the physical-device review record and remaining coverage.
 
 The ARM64 native executables are checked in. To rebuild them from the pinned aMule source and Android patch, follow [native-core/README.md](native-core/README.md); an APK build alone does not rebuild them.
