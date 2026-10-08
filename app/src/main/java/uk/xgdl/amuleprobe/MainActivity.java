@@ -138,6 +138,12 @@ public final class MainActivity extends Activity {
     private String downloadFilterCategory = "All";
     private String downloadSort = "Name";
     private final Set<String> selectedDownloadHashes = new HashSet<>();
+    private LinearLayout downloadRows;
+    private TextView downloadTitle;
+    private TextView downloadQueueInfo;
+    private TextView downloadTotals;
+    private final ArrayList<String> visibleDownloadHashes = new ArrayList<>();
+    private final Map<String, String> visibleDownloadFingerprints = new HashMap<>();
     private String preferencesTab = "General";
     private String nativeTheme = "system";
     private String clientListMode = "Connected";
@@ -416,8 +422,8 @@ public final class MainActivity extends Activity {
                     downloads = resultDownloads;
                     refreshing.set(false);
                     lastApiError = resultError;
-                    if (selectedPage.equals("Downloads") && downloadsChanged
-                            || selectedPage.equals("Networks") && networkChanged
+                    if (selectedPage.equals("Downloads") && downloadsChanged) updateDownloadRows();
+                    else if (selectedPage.equals("Networks") && networkChanged
                             || selectedPage.equals("Search") && searchOptionsChanged) renderLivePage();
                     else updateFooter(lastApiError);
                 });
@@ -876,6 +882,7 @@ public final class MainActivity extends Activity {
         pageTitle.setText(tr(selectedPage));
         updateNavigationSelection();
         pageContent.removeAllViews();
+        downloadRows = null;
         if (selectedPage.equals("Downloads")) renderDownloads();
         else if (selectedPage.equals("Networks")) renderNetworks();
         else if (selectedPage.equals("Search")) renderSearch();
@@ -925,6 +932,7 @@ public final class MainActivity extends Activity {
         LinearLayout card = card();
         LinearLayout heading = horizontal();
         TextView title = new TextView(this);
+        downloadTitle = title;
         title.setText(tr("All  " + downloads.length()));
         title.setTextColor(INK);
         title.setTextSize(18);
@@ -1024,8 +1032,11 @@ public final class MainActivity extends Activity {
         });
         card.addView(sort, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         TextView info = new TextView(this);
+        downloadQueueInfo = info;
         JSONArray visibleDownloads = filteredDownloads();
         selectedDownloadHashes.retainAll(downloadHashes(visibleDownloads));
+        visibleDownloadHashes.clear();
+        visibleDownloadFingerprints.clear();
         info.setText(tr("Download queue  ·  " + visibleDownloads.length() + " shown of " + downloads.length()
                 + "  ·  " + selectedDownloadHashes.size() + " selected"));
         info.setTextColor(MUTED);
@@ -1051,13 +1062,27 @@ public final class MainActivity extends Activity {
             empty.addView(hint);
             pageContent.addView(empty, marginParams(0, 0, 0, 12));
         } else {
+            downloadRows = new LinearLayout(this);
+            downloadRows.setOrientation(LinearLayout.VERTICAL);
             for (int i = 0; i < visibleDownloads.length(); i++) {
                 JSONObject download = visibleDownloads.optJSONObject(i);
-                if (download != null) pageContent.addView(downloadCard(download), marginParams(0, 0, 0, 10));
+                if (download == null) continue;
+                String hash = download.optString("hash");
+                visibleDownloadHashes.add(hash);
+                visibleDownloadFingerprints.put(hash, download.toString());
+                downloadRows.addView(downloadCard(download), marginParams(0, 0, 0, 10));
             }
+            pageContent.addView(downloadRows);
         }
 
         LinearLayout totals = card();
+        TextView totalText = bodyText(downloadTotalsText());
+        downloadTotals = totalText;
+        totals.addView(totalText);
+        pageContent.addView(totals);
+    }
+
+    private String downloadTotalsText() {
         long size = 0;
         long done = 0;
         long speed = 0;
@@ -1068,10 +1093,47 @@ public final class MainActivity extends Activity {
             done += row.optLong("completed_bytes");
             speed += row.optLong("speed_bytes_per_second");
         }
-        TextView totalText = bodyText(downloads.length() + " files   ·   Size " + bytes(size)
-                + "   ·   Done " + bytes(done) + "   ·   Speed " + speed(speed));
-        totals.addView(totalText);
-        pageContent.addView(totals);
+        return downloads.length() + " files   ·   Size " + bytes(size)
+                + "   ·   Done " + bytes(done) + "   ·   Speed " + speed(speed);
+    }
+
+    private void updateDownloadRows() {
+        if (!selectedPage.equals("Downloads") || downloadRows == null) {
+            renderLivePage();
+            return;
+        }
+        JSONArray visible = filteredDownloads();
+        if (visible.length() != visibleDownloadHashes.size()) {
+            renderLivePage();
+            return;
+        }
+        for (int i = 0; i < visible.length(); i++) {
+            JSONObject row = visible.optJSONObject(i);
+            if (row == null || !row.optString("hash").equals(visibleDownloadHashes.get(i))) {
+                renderLivePage();
+                return;
+            }
+        }
+        int scrollY = pageScroll == null ? 0 : pageScroll.getScrollY();
+        boolean replaced = false;
+        for (int i = 0; i < visible.length(); i++) {
+            JSONObject row = visible.optJSONObject(i);
+            String hash = row.optString("hash");
+            String fingerprint = row.toString();
+            if (fingerprint.equals(visibleDownloadFingerprints.get(hash))) continue;
+            downloadRows.removeViewAt(i);
+            downloadRows.addView(downloadCard(row), i, marginParams(0, 0, 0, 10));
+            visibleDownloadFingerprints.put(hash, fingerprint);
+            replaced = true;
+        }
+        if (replaced && pageScroll != null) pageScroll.post(() -> {
+            if (selectedPage.equals("Downloads")) pageScroll.scrollTo(0, scrollY);
+        });
+        downloadTitle.setText(tr("All  " + downloads.length()));
+        downloadQueueInfo.setText(tr("Download queue  ·  " + visible.length() + " shown of "
+                + downloads.length() + "  ·  " + selectedDownloadHashes.size() + " selected"));
+        downloadTotals.setText(downloadTotalsText());
+        updateFooter(lastApiError);
     }
 
     private JSONArray filteredDownloads() {
