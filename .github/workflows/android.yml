@@ -29,6 +29,14 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
+      - name: Enable emulator acceleration when available
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod a+rw /dev/kvm
+          else
+            echo '/dev/kvm is unavailable; the emulator will use software acceleration.'
+          fi
+
       - name: Build the packaged APK
         run: |
           ./gradlew --no-daemon assembleDebug
@@ -41,6 +49,7 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_7
+          emulator-boot-timeout: 1200
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           script: bash scripts/ci-emulator.sh "$RUNNER_TEMP/full-app.apk"
