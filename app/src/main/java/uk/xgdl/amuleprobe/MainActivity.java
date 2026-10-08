@@ -703,6 +703,7 @@ public final class MainActivity extends Activity {
         toolbar.setPadding(dp(12), dp(6), dp(12), dp(6));
         toolbar.setBackgroundColor(TOOLBAR);
         TextView menu = new TextView(this);
+        menu.setId(R.id.native_menu);
         menu.setText(tr("☰"));
         menu.setTextSize(25);
         menu.setTextColor(INK);
@@ -719,6 +720,7 @@ public final class MainActivity extends Activity {
         toolbar.addView(brand);
 
         pageTitle = new TextView(this);
+        pageTitle.setId(R.id.native_page_title);
         pageTitle.setTextSize(22);
         pageTitle.setTextColor(INK);
         pageTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -2502,6 +2504,7 @@ public final class MainActivity extends Activity {
         int selected = 0;
         for (int i = 0; i < tabs.length; i++) if (tabs[i].equals(preferencesTab)) selected = i;
         Spinner picker = translatedSpinner(tabs, selected);
+        picker.setId(R.id.native_preferences_section);
         picker.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
                 if (!preferencesTab.equals(tabs[position])) { preferencesTab = tabs[position]; renderCurrentPage(); }
@@ -2572,6 +2575,7 @@ public final class MainActivity extends Activity {
         group.addView(theme, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
         TextView languageLabel = bodyText("Interface language"); languageLabel.setTextColor(INK); languageLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD); group.addView(languageLabel);
         Spinner language = translatedSpinner(new String[] {"English", "Español"}, nativeLanguage.equals("Español") ? 1 : 0);
+        language.setId(R.id.native_language);
         language.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
                 String next = position == 0 ? "English" : "Español";

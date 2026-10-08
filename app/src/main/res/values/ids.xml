@@ -1,0 +1,6 @@
+<resources>
+    <item name="native_menu" type="id" />
+    <item name="native_page_title" type="id" />
+    <item name="native_preferences_section" type="id" />
+    <item name="native_language" type="id" />
+</resources>

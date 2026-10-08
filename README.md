@@ -74,6 +74,8 @@ The included native binaries were built from [aMule commit `f1d4b19`](https://gi
 
 The native interface was built and manually exercised on an Android 16 / API 36 x86_64 emulator, where Android translated the bundled ARM64 binaries. The review covered live network status, an active test download, shared-file details, client views, graphs, representative preference edits, navigation and the English and Spanish interfaces. Temporary test files and edits were removed or restored. The [detailed review record](NATIVE-UI-EXPERIMENT.md#review-state) lists what was checked.
 
+CI also opens the packaged native app on that emulator, visits every main screen through its menu in English and Spanish, and changes the language through Preferences in both directions. This is a navigation and language smoke check; it does not submit network actions or change daemon preferences.
+
 Development continues on remaining feature differences and physical ARM64 device testing. The Web UI remains available for workflows not yet represented in the native screens. The [existing Android core test record](TESTING.md) covers the earlier physical phone checks of the daemon, service, UPnP and WebView.
 
 ## Licence
