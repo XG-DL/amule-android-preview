@@ -44,20 +44,42 @@ install_apk "$full_apk"
 adb shell pm grant uk.xgdl.amuleprobe android.permission.POST_NOTIFICATIONS
 adb shell am start -n uk.xgdl.amuleprobe/.MainActivity
 smoke_log=${RUNNER_TEMP:-/tmp}/amule-ci-smoke.log
+smoke_passed=false
 for ((attempt = 1; attempt <= 24; attempt++)); do
     if scripts/android-smoke-test.sh >"$smoke_log" 2>&1; then
         cat "$smoke_log"
-        exit 0
+        smoke_passed=true
+        break
     fi
     sleep 5
 done
-cat "$smoke_log" >&2
-adb shell run-as uk.xgdl.amuleprobe cat shared_prefs/amule_runtime.xml 2>/dev/null \
-    | python3 -c 'import sys, xml.etree.ElementTree as ET
+if [[ "$smoke_passed" != true ]]; then
+    cat "$smoke_log" >&2
+    adb shell run-as uk.xgdl.amuleprobe cat shared_prefs/amule_runtime.xml 2>/dev/null \
+        | python3 -c 'import sys, xml.etree.ElementTree as ET
 try:
     root = ET.parse(sys.stdin).getroot()
     error = next((item.text for item in root.findall("string") if item.get("name") == "last_error"), None)
     print("Last app startup error:", error or "(none)")
 except Exception as failure:
     print("Could not read the app startup error:", failure)' >&2 || true
-exit 1
+    exit 1
+fi
+
+# The native branch supplies an additional test that drives the packaged UI.
+if [[ -f app/src/androidTest/java/uk/xgdl/amuleprobe/NativeUiSmokeTest.java ]]; then
+    if ! ui_output=$(adb shell am instrument -w -r \
+        -e class uk.xgdl.amuleprobe.NativeUiSmokeTest \
+        uk.xgdl.amuleprobe.test/androidx.test.runner.AndroidJUnitRunner); then
+        printf '%s\n' "$ui_output"
+        exit 1
+    fi
+    printf '%s\n' "$ui_output"
+    if [[ "$ui_output" != *'OK (1 test)'* \
+            || "$ui_output" == *'FAILURES!!!'* \
+            || "$ui_output" != *'INSTRUMENTATION_CODE: -1'* ]]; then
+        printf 'Native UI instrumentation did not report success.\n' >&2
+        adb logcat -d -t 300 -s 'AndroidRuntime:E' '*:S' >&2 || true
+        exit 1
+    fi
+fi
