@@ -28,15 +28,20 @@ public final class ExportInterruptionTestService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_RECOVER_EXPORT.equals(intent.getAction())) {
             File incoming = new File(new File(getFilesDir(), "amule"), "Incoming");
-            stopSelf(startId);
             new Thread(() -> {
-                CompletedDownloadExporter exporter = new CompletedDownloadExporter(
-                        ExportInterruptionTestService.this, incoming);
-                exporter.scan();
-                exporter.scan();
-                exporter.scan();
-                sendBroadcast(new Intent(ACTION_RECOVERY_FINISHED)
-                        .setPackage("uk.xgdl.amuleprobe"));
+                try {
+                    CompletedDownloadExporter exporter = new CompletedDownloadExporter(
+                            ExportInterruptionTestService.this, incoming);
+                    exporter.scan();
+                    exporter.scan();
+                    exporter.scan();
+                    sendBroadcast(new Intent(ACTION_RECOVERY_FINISHED)
+                            .setPackage("uk.xgdl.amuleprobe"));
+                } catch (RuntimeException error) {
+                    android.util.Log.e("aMuleExportTest", "Export recovery helper failed", error);
+                } finally {
+                    stopSelf(startId);
+                }
             }, "export-recovery-test").start();
             return START_NOT_STICKY;
         }
@@ -50,7 +55,6 @@ public final class ExportInterruptionTestService extends Service {
         // Clear the started-service record before the intentional process death, avoiding a system restart.
         stopSelf(startId);
 
-        stopSelf(startId);
         File incoming = new File(new File(getFilesDir(), "amule"), "Incoming");
         new Thread(() -> {
             CompletedDownloadExporter.OutputStreamOpener pauseDuringWrite = (resolver, destination) ->

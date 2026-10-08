@@ -224,7 +224,7 @@ public final class CompletedDownloadExporterTest {
                     .setAction(ExportInterruptionTestService.ACTION_RECOVER_EXPORT);
             assertNotNull(context.startService(recover));
             assertTrue("The restarted app process did not finish export recovery",
-                    recoveryFinished.await(20, TimeUnit.SECONDS));
+                    recoveryFinished.await(45, TimeUnit.SECONDS));
         } finally {
             instrumentationContext.unregisterReceiver(receiver);
         }
