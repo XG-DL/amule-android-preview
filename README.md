@@ -2,7 +2,7 @@
 
 This branch is the first public preview of a native Android interface for the [aMule for Android project](https://github.com/XG-DL/amule-android-preview). It runs the same bundled `amuled` daemon and `amuleapi` service as the existing WebView app. The native screens use the local API to monitor and control aMule; the full Web UI remains available from the app menu.
 
-The interface offers **English and Spanish** and is designed for a phone screen. 
+The interface offers **English and Spanish** and is designed for a phone screen.
 
 | Item | Current status |
 |---|---|
@@ -78,4 +78,4 @@ Development continues on remaining feature differences and physical ARM64 device
 
 ## Licence
 
-The Android wrapper and Android-specific aMule changes are released under GPL-2.0-or-later; see [LICENSE.md](LICENSE.md). [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) lists bundled dependencies and their licences. 
+The Android wrapper and Android-specific aMule changes are released under GPL-2.0-or-later; see [LICENSE.md](LICENSE.md). [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) lists bundled dependencies and their licences.

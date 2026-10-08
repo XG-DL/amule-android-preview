@@ -2,7 +2,7 @@
 
 This branch explores a native Android frontend for the Android aMule preview. It remains separate from the existing `main` branch.
 
-The app continues to run the same native aMule daemon. The Android UI talks to the bundled `amuleapi` service on loopback. The existing WebView remains available in the app.
+The app runs the same native aMule daemon as the main branch. The Android UI talks to the bundled `amuleapi` service on loopback. The existing WebView remains available from the app menu.
 
 ## Screenshots
 
@@ -31,11 +31,11 @@ These screenshots were captured from the English interface on an Android 16 (API
 - **Appearance:** local System/Light/Dark theme, English/Spanish interface choice and graph range. Spanish covers navigation, preference sections and main screen controls; aMule-provided names, logs, statistics values and some less common strings remain in the daemon/UI language.
 - **About:** Android app version, aMule API and daemon versions, API version, update status, and the configured update-check action.
 - Native search includes Global/Kad/Local search, filters, sorting, per-search state, selection and result details. Native preferences cover the settings exposed by the API.
-- The Full Web UI remains available for controls and workflows that are not yet represented in the native screens.
+- The Full Web UI remains available from the app menu for additional controls and workflows.
 
-## Differences and limits
+## Implementation notes
 
-The interface presents aMule data in mobile cards. Mobile cards replace resizable tables; client and server lists load 50 records at a time; graph controls expose four fixed ranges and do not reproduce every Web UI graph option. The Spanish UI translates app-owned labels and controls; filenames, server/client names, logs and message text supplied by aMule or the user remain as supplied. Some per-file detail operations depend on the API endpoints supported by the connected aMule build. Use the Full Web UI for workflows that need its complete controls.
+Mobile cards present data from the API; client and server lists load 50 records at a time; graph controls offer four fixed ranges. The Spanish UI translates app-owned labels and controls; filenames, server/client names, logs and message text supplied by aMule or the user remain as supplied. Some per-file detail operations depend on the API endpoints supported by the connected aMule build. The Full Web UI provides its own controls from the app menu.
 
 The native UI subscribes to the API's server-sent event stream and refreshes the affected screen when events arrive. REST polling remains as a fallback and periodic reconciliation. Open chat dialogs also poll for new messages every three seconds while visible. Long-lived graph history depends on the data the daemon retains and the selected sample interval.
 
