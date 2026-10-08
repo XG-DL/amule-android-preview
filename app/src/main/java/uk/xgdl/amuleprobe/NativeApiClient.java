@@ -126,18 +126,19 @@ final class NativeApiClient {
             byte[] buffer = new byte[2048];
             int count;
             while ((count = socket.getInputStream().read(buffer)) != -1) responseBytes.write(buffer, 0, count);
-            String raw = responseBytes.toString(StandardCharsets.UTF_8.name());
-            int split = raw.indexOf("\r\n\r\n");
+            byte[] raw = responseBytes.toByteArray();
+            int split = indexOf(raw, 0, "\r\n\r\n");
             if (split < 0) throw new IOException("Invalid response from local aMule API");
-            String responseHeaders = raw.substring(0, split);
-            String responseBody = raw.substring(split + 4);
+            String responseHeaders = new String(raw, 0, split, StandardCharsets.US_ASCII);
+            byte[] responseBytesBody = java.util.Arrays.copyOfRange(raw, split + 4, raw.length);
             rememberCookie(responseHeaders);
             int status = 500;
             String[] first = responseHeaders.split("\r\n", 2)[0].split(" ");
             if (first.length > 1) status = Integer.parseInt(first[1]);
             if (responseHeaders.toLowerCase(java.util.Locale.ROOT).contains("transfer-encoding: chunked")) {
-                responseBody = unchunk(responseBody);
+                responseBytesBody = unchunk(responseBytesBody);
             }
+            String responseBody = new String(responseBytesBody, StandardCharsets.UTF_8);
             if (status < 200 || status >= 300) {
                 throw new IOException("Local aMule API request failed (HTTP " + status + ")" + errorDetail(responseBody));
             }
@@ -145,23 +146,39 @@ final class NativeApiClient {
         }
     }
 
-    private static String unchunk(String body) throws IOException {
+    private static int indexOf(byte[] data, int start, String needle) {
+        byte[] bytes = needle.getBytes(StandardCharsets.US_ASCII);
+        outer: for (int offset = start; offset <= data.length - bytes.length; offset++) {
+            for (int i = 0; i < bytes.length; i++) {
+                if (data[offset + i] != bytes[i]) continue outer;
+            }
+            return offset;
+        }
+        return -1;
+    }
+
+    private static byte[] unchunk(byte[] body) throws IOException {
         ByteArrayOutputStream decoded = new ByteArrayOutputStream();
         int offset = 0;
-        while (offset < body.length()) {
-            int end = body.indexOf("\r\n", offset);
+        while (offset < body.length) {
+            int end = indexOf(body, offset, "\r\n");
             if (end < 0) throw new IOException("Invalid chunked response from local aMule API");
             int size;
-            try { size = Integer.parseInt(body.substring(offset, end).trim(), 16); }
+            String sizeLine = new String(body, offset, end - offset, StandardCharsets.US_ASCII);
+            int extension = sizeLine.indexOf(';');
+            if (extension >= 0) sizeLine = sizeLine.substring(0, extension);
+            try { size = Integer.parseInt(sizeLine.trim(), 16); }
             catch (NumberFormatException error) { throw new IOException("Invalid chunked response from local aMule API", error); }
             if (size == 0) break;
             int start = end + 2;
             int finish = start + size;
-            if (finish > body.length()) throw new IOException("Truncated response from local aMule API");
-            decoded.write(body.substring(start, finish).getBytes(StandardCharsets.UTF_8));
+            if (finish + 2 > body.length || body[finish] != '\r' || body[finish + 1] != '\n') {
+                throw new IOException("Truncated response from local aMule API");
+            }
+            decoded.write(body, start, size);
             offset = finish + 2;
         }
-        return decoded.toString(StandardCharsets.UTF_8.name());
+        return decoded.toByteArray();
     }
 
     JSONObject delete(String path) throws IOException, JSONException {
