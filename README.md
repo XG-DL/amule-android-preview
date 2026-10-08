@@ -73,7 +73,7 @@ The Android ARM64 aMule executables are included in this repository under `app/s
 
 ### Ready-made testing build
 
-Download the [preview APK](https://github.com/XG-DL/amule-android-preview/releases/tag/v0.1.2-preview) from GitHub Releases. It is a debug-signed development build for testing. Android may ask you to allow installation from the app used to open the download. The release notes include the APK's SHA-256 checksum.
+Download the [Web UI preview APK](https://github.com/XG-DL/amule-android-preview/releases/tag/v0.1.3-webview-preview) from GitHub Releases. The [native interface preview](https://github.com/XG-DL/amule-android-preview/releases/tag/v0.1.3-native-preview) is built from the separate `native-android-ui-experiment` branch. Both use the same Android application ID, so installing one replaces the other. They are debug-signed builds for testing; the release notes include their SHA-256 checksums.
 
 ### Requirements
 
