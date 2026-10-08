@@ -4,12 +4,25 @@ set -euo pipefail
 full_apk=${1:?Pass the packaged ARM64 APK path}
 test_apk=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 
+install_apk() {
+    local apk=$1 attempt
+    for attempt in 1 2 3 4 5 6; do
+        if timeout 10 adb shell pm path android >/dev/null 2>&1 \
+                && timeout 120 adb install -r --no-streaming "$apk"; then
+            return 0
+        fi
+        printf 'Package manager unavailable; retrying %s (attempt %s/6).\n' "$apk" "$attempt" >&2
+        sleep 8
+    done
+    return 1
+}
+
 # The exporter tests use a local mock API. Package a test host without the
 # ARM64 executables so the tests can run on the x86_64 emulator.
 ./gradlew --no-daemon clean assembleDebug assembleDebugAndroidTest \
     -PandroidExporterTestHost=true
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb install -r "$test_apk"
+install_apk app/build/outputs/apk/debug/app-debug.apk
+install_apk "$test_apk"
 
 if ! test_output=$(adb shell am instrument -w -r \
     -e class uk.xgdl.amuleprobe.CompletedDownloadExporterTest \
@@ -24,7 +37,7 @@ if [[ "$test_output" != *'INSTRUMENTATION_CODE: -1'* ]]; then
 fi
 
 # Install the real package and exercise its daemon, local API and service.
-adb install -r "$full_apk"
+install_apk "$full_apk"
 adb shell am start -n uk.xgdl.amuleprobe/.MainActivity
 smoke_log=${RUNNER_TEMP:-/tmp}/amule-ci-smoke.log
 for ((attempt = 1; attempt <= 24; attempt++)); do
