@@ -1,6 +1,6 @@
 # aMule for Android (preview)
 
-An Android package that runs aMule's native daemon on the phone and presents aMule's responsive web interface in an Android WebView. This is an early, working prototype intended for hands-on review.
+An Android package that runs aMule's native daemon on the phone and presents aMule's responsive web interface in an Android WebView. This preview is available for hands-on review.
 
 | Item | Current status |
 |---|---|
@@ -73,7 +73,7 @@ The Android ARM64 aMule executables are included in this repository under `app/s
 
 ### Ready-made testing build
 
-Download a preview APK from [GitHub Releases](https://github.com/XG-DL/amule-android-preview/releases). The APK is a debug-signed development build for testing. Android may ask you to allow installation from the app used to open the download. The release notes include the APK's SHA-256 checksum.
+Download the [preview APK](https://github.com/XG-DL/amule-android-preview/releases/tag/v0.1.2-preview) from GitHub Releases. It is a debug-signed development build for testing. Android may ask you to allow installation from the app used to open the download. The release notes include the APK's SHA-256 checksum.
 
 ### Requirements
 
