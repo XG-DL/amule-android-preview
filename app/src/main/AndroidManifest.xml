@@ -18,6 +18,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".WebUiActivity"
+            android:exported="false" />
         <service
             android:name=".AmuleService"
             android:exported="false"

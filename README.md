@@ -1,6 +1,6 @@
 # aMule for Android (preview)
 
-An Android package that runs aMule's native daemon on the phone and presents aMule's responsive web interface in an Android WebView. This is an early, working prototype intended for hands-on review.
+An Android package that runs aMule's native daemon on the phone. This branch introduces a native Android interface alongside the existing Web UI. It is an early, working prototype intended for hands-on review. See [the native interface overview and screenshots](NATIVE-UI-EXPERIMENT.md) for its screens, behaviour and review record.
 
 | Item | Current status |
 |---|---|
@@ -8,13 +8,18 @@ An Android package that runs aMule's native daemon on the phone and presents aMu
 | Supported ABI | `arm64-v8a` only |
 | Minimum Android API | 33 (Android 13) |
 | Target Android API | 36 (Android 16) |
-| Interface | aMule Web UI inside an Android WebView |
+| Interface | Native Android screens with the existing Web UI available from the menu |
 | aMule core | Android ARM64 `amuled` and `amuleapi` binaries included |
-| Tested device | Pixel 10 Pro XL, ARM64, GrapheneOS (Android 17 / API 37) |
+| Native interface checked on | Android 16 / API 36 x86_64 emulator running the ARM64 binaries through Android's ARM translation layer |
+| Existing Web UI checked on | Pixel 10 Pro XL, ARM64, GrapheneOS (Android 17 / API 37) |
 
 ## Screenshots
 
-Captured from the running app on the tested phone in landscape and portrait orientations.
+The [native interface gallery](NATIVE-UI-EXPERIMENT.md#screenshots) shows the English Networks, Statistics, Search, Downloads, Appearance and Connection preferences screens captured on the Android 16 emulator.
+
+The screenshots below show the existing Web UI on the ARM64 phone.
+
+Captured from the running app in landscape and portrait orientations.
 
 ### Networks — Kad
 
@@ -41,15 +46,15 @@ Captured from the running app on the tested phone in landscape and portrait orie
 The Android wrapper starts two native aMule programs as child processes:
 
 1. `amuled` runs the eD2k/Kad client and stores its configuration and working files in the app's private storage.
-2. `amuleapi` serves the bundled aMule Web UI and its REST API on `127.0.0.1:4713`. The wrapper connects the WebView to this local address and creates a local authenticated session.
+2. `amuleapi` serves the bundled aMule Web UI and its REST API on `127.0.0.1:4713`. The native Android interface uses that local API. The WebView also connects to the local address and creates an authenticated session when opened from the menu.
 
 Both programs run under an Android foreground service. Android displays a persistent notification while the service is active; its **Stop** action terminates the API and daemon. The service monitors the child processes and local API listener: it restarts a failed API process without restarting a healthy daemon, and retries the core if the daemon exits, using a growing delay after repeated failures. The notification reports network availability and low-storage warnings. The Web API is configured for loopback access, rather than a LAN listener. When saved aMule preferences enable UPnP, the service holds Android's Wi-Fi multicast lock so pupnp can receive SSDP discovery packets; the lock is released when the service stops.
 
-The WebView talks to the local API over HTTP on `127.0.0.1`; the Android manifest permits cleartext traffic for this local connection. The API itself is configured to listen only on loopback.
+The native interface and WebView talk to the local API over HTTP on `127.0.0.1`; the Android manifest permits cleartext traffic for this local connection. The API itself is configured to listen only on loopback.
 
 aMule's configuration, incomplete files (`Temp`) and active downloads live in app-private storage. When a download completes, the app publishes and verifies it in the shared `Downloads/aMule/Complete/` folder, adds that folder to aMule's shared directories, then removes the private original and refreshes aMule's share list. The private and shared copies coexist only during the transfer; if publishing or sharing the destination fails, the original is kept.
 
-The app packages the responsive aMule Web UI with small mobile layout and chart-label adjustments. The phone displays it in a WebView.
+The app packages the upstream responsive Web UI with small mobile layout and chart-label adjustments. The native Android interface uses mobile screens built for this app. Desktop `aMule` and `aMuleGUI` use wxWidgets screens; those screens have not been ported to Android.
 
 The included core build enables aMule's UPnP port mapping, which is off by default in aMule preferences and can be enabled under **Preferences → Connection**. Restart the app after changing that option; aMule initializes its UPnP control point when the daemon starts. It maps the P2P TCP and UDP ports through a compatible local router; it does not map the loopback-only Web API or External Connections port. IPv6 remains disabled because the pinned aMule source labels IPv6 TCP admission experimental and says IPv6 identity handling is incomplete. IP geolocation, experimental uTP, QUIC and native gettext catalogs also remain disabled; the Web UI has its own bundled translations.
 
@@ -59,8 +64,9 @@ The included core build enables aMule's UPnP port mapping, which is off by defau
 - Keeps the daemon running in the foreground service when the screen is closed.
 - Reports network availability in the foreground notification and recovers the API or daemon if either child process exits unexpectedly.
 - Checks free space on the aMule data volume once a minute and warns in the notification below 1 GiB free; it does not stop or delete downloads.
+- Provides native Android screens for Networks, Search, Downloads, Shared files, Clients, Messages, Statistics, Preferences and About, with English and Spanish interface options.
 - Shows the Web UI areas available in aMule's web client: Networks, Searches, Downloads, Shared files, Clients, Messages, Statistics, Preferences and About.
-- Uses the aMule Web UI for configuration; settings shown there are those implemented by the Web API.
+- Edits the aMule settings exposed by the local API from the native Preferences screen; the Web UI remains available for its full set of controls.
 - Includes native UPnP support for mapping aMule's P2P TCP and UDP ports on compatible LAN routers. Router discovery and mapping have been tested on the device.
 - Moves completed files from aMule's private Incoming directory to `Downloads/aMule/Complete/` on supported Android versions (API 33 and later), then keeps that folder in aMule's shared-directory list so completed files remain available for sharing.
 - Includes tested layout adjustments for short landscape screens and Kad graph labels.
@@ -73,7 +79,7 @@ The Android ARM64 aMule executables are included in this repository under `app/s
 
 ### Ready-made testing build
 
-Download a preview APK from [GitHub Releases](https://github.com/XG-DL/amule-android-preview/releases). The APK is a debug-signed development build for testing. Android may ask you to allow installation from the app used to open the download. The release notes include the APK's SHA-256 checksum.
+The [latest GitHub release](https://github.com/XG-DL/amule-android-preview/releases/latest) contains the published WebView preview. Build this branch from source to try the native interface until a native preview APK is released. Android may ask you to allow installation from the app used to open a downloaded APK.
 
 ### Requirements
 
@@ -113,12 +119,14 @@ Rebuilding the APK is a single Gradle command above. Rebuilding the native execu
 
 Manual smoke testing was performed on one ARM64 GrapheneOS phone on 7 October 2026. aMule discovered the local router's UPnP WAN service, added three P2P mappings, reached eD2k High ID and connected Kad without a firewall warning. A live port change and restoration also retained High ID. See [TESTING.md](TESTING.md) for the steps and remaining coverage limits.
 
+The native interface was built and manually exercised on an Android 16 / API 36 x86_64 emulator using Android's ARM translation layer for the bundled aMule binaries. The [native interface review record](NATIVE-UI-EXPERIMENT.md#review-state) lists the controls checked there.
+
 Run `scripts/android-smoke-test.sh` with one authorised Android device connected to check the foreground service, daemon, local API and its download/shared-file endpoints. The script uses Python 3 and the debug APK's `run-as` access; it opens a temporary ADB forward to the loopback-only API and removes it when finished. Set `AMULE_EXPECT_SHARED` to a filename fragment to check that a particular completed test file appears in the shared list.
 
 ## Known limits
 
 - ARM64 only. Other device architectures have no bundled native binaries.
-- Tested on one GrapheneOS phone, not a range of Android versions or manufacturers.
+- The existing Web UI was tested on one GrapheneOS phone. The native interface has been exercised on the Android 16 emulator; it still needs a physical ARM64 device review.
 - No automated Android UI test suite is included; interaction testing to date is manual.
 - A ten-minute screen-off interval, a brief full-network interruption, an app stop/relaunch and a device reboot have been checked on one phone. aMule does not auto-start at boot; the user must open it after reboot. Android process reclamation, battery-saver behaviour, extended transfers and all preference effects have not been verified.
 - The native dependency and aMule cross-build is automated for Linux x86-64 by `native-core/build-android-deps.sh`. It is separate from the Android wrapper/APK build and has not yet been exercised on other host operating systems or architectures.
