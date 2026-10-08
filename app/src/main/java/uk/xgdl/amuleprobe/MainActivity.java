@@ -36,8 +36,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -91,7 +89,7 @@ public final class MainActivity extends Activity {
     private int serversTotal;
     private JSONArray statNodes = new JSONArray();
     private final Map<String, JSONObject> graphData = new HashMap<>();
-    private final Map<String, String> spanishCatalog = new HashMap<>();
+    private NativeStrings nativeStrings;
     private long lastGraphRefreshMillis;
     private JSONObject preferences = new JSONObject();
     private boolean preferencesLoaded;
@@ -198,7 +196,7 @@ public final class MainActivity extends Activity {
         setTheme(nativeTheme.equals("dark") || (nativeTheme.equals("system") && systemDark)
                 ? R.style.PreviewThemeDark : R.style.PreviewTheme);
         super.onCreate(state);
-        loadSpanishCatalog();
+        nativeStrings = new NativeStrings(this);
         if (state != null) {
             selectedPage = state.getString("native_page", selectedPage);
             preferencesTab = state.getString("native_preferences_tab", preferencesTab);
@@ -2478,86 +2476,11 @@ public final class MainActivity extends Activity {
         TextView heading = bodyText(title);
         heading.setTextColor(INK); heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         frame.addView(heading);
-        frame.addView(new NativeGraphView(response, color), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(170)));
+        frame.addView(new NativeGraphView(this, response, color, MUTED, BORDER), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(170)));
         if (key.equals("connections")) frame.addView(bodyText("Total connections  ·  active downloads  ·  active uploads"));
         JSONObject session = response.optJSONObject("session");
         if (session != null && key.equals("download_speed")) frame.addView(bodyText("This session  ·  downloaded " + bytes(session.optLong("downloaded_bytes")) + "  ·  uploaded " + bytes(session.optLong("uploaded_bytes"))));
         pageContent.addView(frame, marginParams(0, 0, 0, 8));
-    }
-
-    private final class NativeGraphView extends View {
-        private final JSONObject response;
-        private final int color;
-        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-
-        NativeGraphView(JSONObject response, int color) { super(MainActivity.this); this.response = response; this.color = color; }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            super.onDraw(canvas);
-            float density = getResources().getDisplayMetrics().density;
-            float left = 42 * density, right = getWidth() - 8 * density, top = 10 * density, bottom = getHeight() - 24 * density;
-            JSONArray points = response.optJSONArray("points");
-            if (points == null || points.length() == 0) {
-                paint.setColor(MUTED); paint.setTextSize(12 * density); canvas.drawText("Waiting for graph samples", left, top + 20 * density, paint); return;
-            }
-            double max = 1;
-            for (int i = 0; i < points.length(); i++) {
-                JSONObject point = points.optJSONObject(i);
-                if (point != null) max = Math.max(max, point.optDouble("value"));
-                if (point != null && response.optString("graph").equals("connections")) {
-                    max = Math.max(max, point.optDouble("active_download_count"));
-                    max = Math.max(max, point.optDouble("active_upload_count"));
-                }
-            }
-            paint.setStrokeWidth(1 * density); paint.setColor(BORDER);
-            for (int row = 0; row < 4; row++) {
-                float y = top + (bottom - top) * row / 3f;
-                canvas.drawLine(left, y, right, y, paint);
-            }
-            paint.setColor(MUTED); paint.setTextSize(10 * density);
-            canvas.drawText(graphAxis(max, response.optString("unit", "count")), 2 * density, top + 4 * density, paint);
-            paint.setColor(color); paint.setStyle(android.graphics.Paint.Style.STROKE); paint.setStrokeWidth(2 * density);
-            android.graphics.Path path = new android.graphics.Path();
-            for (int i = 0; i < points.length(); i++) {
-                JSONObject point = points.optJSONObject(i); if (point == null) continue;
-                float x = left + (right - left) * i / Math.max(1, points.length() - 1);
-                float y = bottom - (float) (Math.max(0, point.optDouble("value")) / max) * (bottom - top);
-                if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
-            }
-            canvas.drawPath(path, paint);
-            if (response.optString("graph").equals("connections")) {
-                drawGraphField(canvas, points, "active_download_count", Color.rgb(54, 175, 113), max, left, right, top, bottom, density);
-                drawGraphField(canvas, points, "active_upload_count", Color.rgb(205, 112, 60), max, left, right, top, bottom, density);
-            }
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-            JSONObject first = points.optJSONObject(0), last = points.optJSONObject(points.length() - 1);
-            String startLabel = first == null ? "" : graphTime(first.optLong("at"));
-            String endLabel = last == null ? "" : graphTime(last.optLong("at"));
-            canvas.drawText(startLabel, left, getHeight() - 4 * density, paint);
-            canvas.drawText(endLabel, Math.max(left, right - paint.measureText(endLabel)), getHeight() - 4 * density, paint);
-        }
-
-        private void drawGraphField(android.graphics.Canvas canvas, JSONArray points, String field, int lineColor, double max,
-                                    float left, float right, float top, float bottom, float density) {
-            paint.setColor(lineColor); paint.setStyle(android.graphics.Paint.Style.STROKE); paint.setStrokeWidth(2 * density);
-            android.graphics.Path path = new android.graphics.Path(); boolean started = false;
-            for (int i = 0; i < points.length(); i++) {
-                JSONObject point = points.optJSONObject(i); if (point == null || !point.has(field)) continue;
-                float x = left + (right - left) * i / Math.max(1, points.length() - 1);
-                float y = bottom - (float) (Math.max(0, point.optDouble(field)) / max) * (bottom - top);
-                if (!started) { path.moveTo(x, y); started = true; } else path.lineTo(x, y);
-            }
-            if (started) canvas.drawPath(path, paint);
-        }
-    }
-
-    private String graphAxis(double value, String unit) {
-        return unit.equals("bytes_per_second") ? speed((long) value) : String.format(java.util.Locale.UK, "%.0f", value);
-    }
-
-    private String graphTime(long epochSeconds) {
-        if (epochSeconds <= 0) return "";
-        return android.text.format.DateFormat.format("HH:mm", epochSeconds * 1000L).toString();
     }
 
     private void addStatNodes(JSONArray nodes, int depth) {
@@ -3421,119 +3344,7 @@ public final class MainActivity extends Activity {
     }
 
     private String tr(String value) {
-        if (!nativeLanguage.equals("Español")) return value;
-        Map<String, String> words = new HashMap<>();
-        words.put("Networks", "Redes"); words.put("Search", "Buscar"); words.put("Downloads", "Descargas"); words.put("Shared", "Compartidos"); words.put("More", "Más");
-        words.put("Clients", "Clientes"); words.put("Messages", "Mensajes"); words.put("Statistics", "Estadísticas"); words.put("Preferences", "Preferencias"); words.put("About", "Acerca de");
-        words.put("Conversations", "Conversaciones"); words.put("Connected clients", "Clientes conectados"); words.put("Known clients", "Clientes conocidos");
-        words.put("Friend controls", "Controles de amigos");
-        words.put("Full Web UI", "Interfaz web completa");
-        words.put("Appearance", "Apariencia"); words.put("General", "General"); words.put("Connection", "Conexión"); words.put("Directories", "Directorios");
-        words.put("Servers", "Servidores"); words.put("Files", "Archivos"); words.put("Security", "Seguridad"); words.put("GeoIP", "GeoIP");
-        words.put("Proxy", "Proxy"); words.put("Message filter", "Filtro de mensajes"); words.put("Remote controls", "Controles remotos");
-        words.put("Online signature", "Firma en línea"); words.put("Advanced", "Avanzado"); words.put("API credentials", "Credenciales de API");
-        words.put("Apply", "Aplicar"); words.put("Cancel", "Cancelar"); words.put("Close", "Cerrar"); words.put("Save", "Guardar"); words.put("Delete", "Eliminar"); words.put("Remove", "Eliminar");
-        words.put("Connect", "Conectar"); words.put("Disconnect", "Desconectar"); words.put("Details", "Detalles"); words.put("Verify", "Verificar"); words.put("Refresh", "Actualizar"); words.put("Stop", "Detener");
-        words.put("Add server", "Añadir servidor"); words.put("Priority", "Prioridad"); words.put("Server priority", "Prioridad del servidor");
-        words.put("Show connected clients", "Mostrar clientes conectados"); words.put("Show known clients", "Mostrar clientes conocidos");
-        words.put("Last seen", "Visto por última vez"); words.put("Downloaded", "Descargado"); words.put("Uploaded", "Subido");
-        words.put("Software", "Programa"); words.put("Download speed", "Velocidad de descarga"); words.put("Upload speed", "Velocidad de subida");
-        words.put("Make permanent", "Hacer permanente"); words.put("Make temporary", "Hacer temporal"); words.put("Temporary", "Temporal"); words.put("Permanent", "Permanente");
-        words.put("Apply filter", "Aplicar filtro"); words.put("Load more servers", "Cargar más servidores"); words.put("Load more clients", "Cargar más clientes");
-        words.put("Name", "Nombre"); words.put("Users", "Usuarios"); words.put("Ping", "Latencia");
-        words.put("Filter by server name or address", "Filtrar por nombre o dirección del servidor");
-        words.put("Filter by name, address or software", "Filtrar por nombre, dirección o programa");
-        words.put("Add friend", "Añadir amigo"); words.put("Open conversation", "Abrir conversación"); words.put("Set friend slot", "Asignar puesto de amigo"); words.put("Remove friend slot", "Quitar puesto de amigo");
-        words.put("No conversations yet. Add a friend by IP address and port to start one.", "Todavía no hay conversaciones. Añade un amigo por dirección IP y puerto para iniciar una.");
-        words.put("No messages yet.", "Todavía no hay mensajes."); words.put("Write a message", "Escribe un mensaje"); words.put("Send", "Enviar");
-        words.put("Online", "En línea"); words.put("Offline", "Desconectado"); words.put("Them:", "Esa persona:"); words.put("You:", "Tú:");
-        words.put("Select", "Seleccionar"); words.put("All", "Todos"); words.put("Uploading", "Subiendo"); words.put("Idle", "Inactivo");
-        words.put("Interface language", "Idioma de la interfaz"); words.put("Native app theme", "Tema de la aplicación"); words.put("System", "Sistema"); words.put("Light", "Claro"); words.put("Dark", "Oscuro");
-        words.put("Statistics graph range", "Intervalo de las gráficas"); words.put("5 minutes", "5 minutos"); words.put("1 hour", "1 hora"); words.put("6 hours", "6 horas"); words.put("24 hours", "24 horas");
-        words.put("Spanish translation covers navigation and common controls. Daemon-provided names and statistics remain in the daemon's language.", "La traducción al español cubre la navegación y los controles habituales. Los nombres y estadísticas proporcionados por el demonio mantienen su idioma.");
-        words.put("Appearance choices are saved on this Android device and do not change daemon preferences.", "Las opciones de apariencia se guardan en este dispositivo Android y no cambian las preferencias del demonio.");
-        String translated = spanishCatalog.get(value);
-        if (translated == null) translated = words.get(value);
-        if (translated != null) return translated;
-        if (value.startsWith("All  ")) return "Total: " + value.substring("All  ".length());
-        if (value.startsWith("Download queue  ·  ")) return "Cola de descargas  ·  " + value.substring("Download queue  ·  ".length()).replace(" shown of ", " mostradas de ").replace(" selected", " seleccionadas");
-        if (value.startsWith("Actions for ") && value.endsWith(" selected downloads")) {
-            return "Acciones para " + value.substring("Actions for ".length(), value.length() - " selected downloads".length()) + " descargas seleccionadas";
-        }
-        if (value.startsWith("Use “") && value.endsWith("” as the download name?")) {
-            return "¿Usar «" + value.substring("Use “".length(), value.length() - "” as the download name?".length()) + "» como nombre de la descarga?";
-        }
-        if (value.startsWith("Shared files  ·  ")) return "Archivos compartidos  ·  " + value.substring("Shared files  ·  ".length());
-        if (value.startsWith("Comments  ·  ")) return "Comentarios  ·  " + value.substring("Comments  ·  ".length());
-        if (value.startsWith("Connected clients  ·  ")) return "Clientes conectados  ·  " + value.substring("Connected clients  ·  ".length());
-        if (value.startsWith("Known clients  ·  ")) return "Clientes conocidos  ·  " + value.substring("Known clients  ·  ".length());
-        int totalsStart = value.indexOf(" files   ·   Size ");
-        if (totalsStart > 0) {
-            return value.substring(0, totalsStart) + " archivos   ·   Tamaño "
-                    + value.substring(totalsStart + " files   ·   Size ".length())
-                    .replace("   ·   Done ", "   ·   Descargado ").replace("   ·   Speed ", "   ·   Velocidad ");
-        }
-        String prefix = null;
-        String prefixTranslation = null;
-        for (String key : spanishCatalog.keySet()) {
-            if (key.endsWith(" ") && value.startsWith(key) && (prefix == null || key.length() > prefix.length())) {
-                prefix = key;
-                prefixTranslation = spanishCatalog.get(key);
-            }
-        }
-        for (Map.Entry<String, String> entry : words.entrySet()) {
-            String key = entry.getKey() + "  ·";
-            if (value.startsWith(key) && (prefix == null || entry.getKey().length() > prefix.length())) {
-                prefix = entry.getKey();
-                prefixTranslation = entry.getValue();
-            }
-        }
-        if (prefix != null) return translateNativeTail(prefixTranslation + value.substring(prefix.length()));
-        return value;
-    }
-
-    private String translateNativeTail(String value) {
-        return value.replace("  ·  uploaded ", "  ·  subido ")
-                .replace("  ·  lifetime ", "  ·  total acumulado ")
-                .replace("  ·  connected", "  ·  conectado")
-                .replace("  ·  seen ", "  ·  visto ")
-                .replace(" results", " resultados")
-                .replace("  ·  Temporary", "  ·  Temporal")
-                .replace("  ·  Permanent", "  ·  Permanente")
-                .replace("downloading", "descargando")
-                .replace("waiting", "en espera")
-                .replace("paused", "en pausa")
-                .replace("stopped", "detenida")
-                .replace("completed", "completada")
-                .replace("hashing", "calculando hash")
-                .replace("erroneous", "con error");
-    }
-
-    private void loadSpanishCatalog() {
-        try {
-            JSONObject english = new JSONObject(readAsset("i18n/en.json"));
-            JSONObject spanish = new JSONObject(readAsset("i18n/es.json"));
-            java.util.Iterator<String> keys = english.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                String en = english.optString(key, ""), es = spanish.optString(key, "");
-                if (!en.isEmpty() && !es.isEmpty()) spanishCatalog.putIfAbsent(en, es);
-            }
-            JSONObject nativeSpanish = new JSONObject(readAsset("i18n/native-es.json"));
-            java.util.Iterator<String> nativeKeys = nativeSpanish.keys();
-            while (nativeKeys.hasNext()) {
-                String source = nativeKeys.next();
-                spanishCatalog.put(source, nativeSpanish.optString(source, source));
-            }
-        } catch (Exception ignored) { /* The hand-written common labels remain available. */ }
-    }
-
-    private String readAsset(String path) throws IOException {
-        try (InputStream input = getAssets().open(path); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[4096]; int count;
-            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
-            return output.toString("UTF-8");
-        }
+        return nativeStrings.translate(value, nativeLanguage);
     }
 
     private EditText searchField(String hint, String value, java.util.function.Consumer<String> update) {
