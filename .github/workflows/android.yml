@@ -53,3 +53,17 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           script: bash scripts/ci-emulator.sh "$RUNNER_TEMP/full-app.apk"
+
+      - name: Record tested APK checksum
+        working-directory: ${{ runner.temp }}
+        run: sha256sum full-app.apk > full-app.apk.sha256
+
+      - name: Save tested APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tested-apk-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/full-app.apk
+            ${{ runner.temp }}/full-app.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
