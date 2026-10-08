@@ -31,8 +31,11 @@ if ! test_output=$(adb shell am instrument -w -r \
     exit 1
 fi
 printf '%s\n' "$test_output"
-if [[ "$test_output" != *'INSTRUMENTATION_CODE: -1'* ]]; then
+if [[ "$test_output" != *'OK (5 tests)'* \
+        || "$test_output" == *'FAILURES!!!'* \
+        || "$test_output" != *'INSTRUMENTATION_CODE: -1'* ]]; then
     printf 'Exporter instrumentation did not report success.\n' >&2
+    adb logcat -d -t 300 -s 'aMuleExportTest:E' 'AndroidRuntime:E' '*:S' >&2 || true
     exit 1
 fi
 
