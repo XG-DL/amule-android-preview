@@ -53,7 +53,7 @@ The bundled aMule core includes local-router UPnP port mapping. It is off by def
 
 ## Build and install
 
-The [latest published APK](https://github.com/XG-DL/amule-android-preview/releases/latest) is currently the WebView preview. Build this branch from source to try the native interface. Building the APK packages the included ARM64 executables; it does not recompile the aMule core.
+Download the [native interface preview APK](https://github.com/XG-DL/amule-android-preview/releases/tag/v0.1.3-native-preview), or build this branch from source. The [Web UI preview APK](https://github.com/XG-DL/amule-android-preview/releases/tag/v0.1.3-webview-preview) is built from `main`. Both use the same Android application ID, so installing one replaces the other. Building either APK packages the included ARM64 executables; it does not recompile the aMule core.
 
 You need JDK 17 or newer, Android SDK Platform 36, Android Build Tools and NDK `28.2.13676358`. Make the SDK available through `ANDROID_HOME` or `local.properties`, then run:
 
