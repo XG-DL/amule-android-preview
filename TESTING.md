@@ -47,7 +47,7 @@ This records manual checks of the Android preview build and the areas still awai
 
 ## Automated CI
 
-The `Android build and tests` workflow builds the packaged debug APK from a clean checkout, then builds a test-host variant and runs the five exporter instrumentation tests on an Android 16/API 36 x86_64 emulator. The test-host variant omits the ARM64 native executables, so this CI job validates the APK build and Java exporter logic; it does not exercise the native daemon or replace the ARM64 device smoke tests.
+The `Android build and tests` workflow builds the packaged debug APK from a clean checkout. On an Android 16/API 36 x86_64 emulator, it installs a test-host variant without the ARM64 executables and runs the five exporter instrumentation tests. It then installs the packaged APK, starts aMule, and checks the native daemon, local API, foreground service, and the status, downloads, shared-file and shared-directory endpoints. This emulator can run the packaged ARM64 executables through Android's ARM translation layer. Physical ARM64 device testing remains a separate check.
 
 ## UPnP port-mapping test
 

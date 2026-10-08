@@ -30,7 +30,9 @@ jobs:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Build the packaged APK
-        run: ./gradlew --no-daemon assembleDebug
+        run: |
+          ./gradlew --no-daemon assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/full-app.apk"
 
       - name: Run exporter instrumentation tests on API 36
         uses: reactivecircus/android-emulator-runner@v2
@@ -41,10 +43,4 @@ jobs:
           profile: pixel_7
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-          script: |
-            set -euo pipefail
-            ./gradlew --no-daemon clean assembleDebug assembleDebugAndroidTest -PandroidExporterTestHost=true
-            adb shell am instrument -w -r \
-              -e class uk.xgdl.amuleprobe.CompletedDownloadExporterTest \
-              uk.xgdl.amuleprobe.test/androidx.test.runner.AndroidJUnitRunner
-            ./gradlew --no-daemon assembleDebug
+          script: bash scripts/ci-emulator.sh "$RUNNER_TEMP/full-app.apk"

@@ -19,6 +19,8 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.FrameLayout;
 
+import org.json.JSONObject;
+
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -140,7 +142,7 @@ public final class MainActivity extends Activity {
             connection.setRequestMethod("POST");
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json");
-            String body = "{\"password\":\"" + password + "\"}";
+            String body = new JSONObject().put("password", password).toString();
             connection.getOutputStream().write(body.getBytes("UTF-8"));
             int status = connection.getResponseCode();
             String cookie = connection.getHeaderField("Set-Cookie");
