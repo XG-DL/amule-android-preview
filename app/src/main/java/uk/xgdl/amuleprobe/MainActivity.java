@@ -89,6 +89,9 @@ public final class MainActivity extends Activity {
     private int serversTotal;
     private JSONArray statNodes = new JSONArray();
     private final Map<String, JSONObject> graphData = new HashMap<>();
+    private final Map<String, String> sectionFingerprints = new HashMap<>();
+    private final Map<String, Integer> sectionRequestVersions = new HashMap<>();
+    private int searchRequestVersion;
     private NativeStrings nativeStrings;
     private long lastGraphRefreshMillis;
     private JSONObject preferences = new JSONObject();
@@ -100,6 +103,16 @@ public final class MainActivity extends Activity {
     private boolean aboutUpdateCheckRunning;
     private int activeSearchId;
     private final Map<Integer, SearchUiState> searchUiStates = new HashMap<>();
+    private final Map<String, Integer> pageScrollPositions = new HashMap<>();
+    private ScrollView pageScroll;
+    private String renderedPage;
+    private int renderGeneration;
+    private boolean scrollRestorePending;
+    private boolean liveRenderPending;
+    private final Runnable pendingLiveRender = () -> {
+        if (liveRenderPending) renderLivePage();
+    };
+    private boolean searchResultsLoaded;
     private String activeSearchQuery = "";
     private String searchState = "";
     private boolean searchKadActive;
@@ -110,6 +123,7 @@ public final class MainActivity extends Activity {
     private String searchMinSize = "";
     private String searchMaxSize = "";
     private String searchFileType = "";
+    private String searchTypeChoice = "Global";
     private String searchResultFilter = "";
     private String searchResultHave = "All";
     private String searchResultSort = "Sources";
@@ -197,10 +211,7 @@ public final class MainActivity extends Activity {
                 ? R.style.PreviewThemeDark : R.style.PreviewTheme);
         super.onCreate(state);
         nativeStrings = new NativeStrings(this);
-        if (state != null) {
-            selectedPage = state.getString("native_page", selectedPage);
-            preferencesTab = state.getString("native_preferences_tab", preferencesTab);
-        }
+        if (state != null) restoreNativeUiState(state);
         applyNativePalette();
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -345,7 +356,12 @@ public final class MainActivity extends Activity {
             return;
         }
         if (name.equals("status_changed")) {
-            handler.post(() -> { status = payload; updateFooter(lastApiError); if (selectedPage.equals("Networks")) renderCurrentPage(); });
+            handler.post(() -> {
+                boolean changed = !status.toString().equals(payload.toString());
+                status = payload;
+                if (changed && selectedPage.equals("Networks")) renderLivePage();
+                else updateFooter(lastApiError);
+            });
             return;
         }
         String page = null;
@@ -392,13 +408,17 @@ public final class MainActivity extends Activity {
                 JSONArray resultDownloads = nextDownloads;
                 String resultError = error;
                 handler.post(() -> {
+                    boolean downloadsChanged = !downloads.toString().equals(resultDownloads.toString());
+                    boolean networkChanged = !status.toString().equals(resultStatus.toString());
+                    boolean searchOptionsChanged = status.optBoolean("search_all_supported")
+                            != resultStatus.optBoolean("search_all_supported");
                     status = resultStatus;
                     downloads = resultDownloads;
                     refreshing.set(false);
                     lastApiError = resultError;
-                    View focused = getCurrentFocus();
-                    if (selectedPage.equals("Preferences")) updateFooter(lastApiError);
-                    else if (!(focused instanceof EditText && focused.hasFocus())) renderCurrentPage();
+                    if (selectedPage.equals("Downloads") && downloadsChanged
+                            || selectedPage.equals("Networks") && networkChanged
+                            || selectedPage.equals("Search") && searchOptionsChanged) renderLivePage();
                     else updateFooter(lastApiError);
                 });
             }
@@ -410,6 +430,8 @@ public final class MainActivity extends Activity {
     private void refreshSectionData() {
         if (api == null) return;
         final String page = selectedPage;
+        final int requestVersion = sectionRequestVersions.getOrDefault(page, 0) + 1;
+        sectionRequestVersions.put(page, requestVersion);
         if (page.equals("Statistics") || page.equals("Networks")) refreshGraphData(page);
         String endpoint;
         if (page.equals("Downloads")) endpoint = "categories";
@@ -427,9 +449,16 @@ public final class MainActivity extends Activity {
                 JSONObject result = api.get(endpoint);
                 JSONArray friendResult = page.equals("Messages") ? api.get("friends").optJSONArray("friends") : null;
                 handler.post(() -> {
-                    if (!page.equals(selectedPage)) return;
+                    if (!page.equals(selectedPage)
+                            || requestVersion != sectionRequestVersions.getOrDefault(page, 0)) return;
+                    String fingerprintKey = page + ":" + endpoint;
+                    String fingerprint = result.toString() + (friendResult == null ? "" : friendResult.toString());
+                    boolean changed = !fingerprint.equals(sectionFingerprints.put(fingerprintKey, fingerprint));
                     if (page.equals("Downloads")) downloadCategories = result.optJSONArray("categories") == null ? new JSONArray() : result.optJSONArray("categories");
-                    else if (page.equals("Shared")) sharedFiles = result.optJSONArray("shared") == null ? new JSONArray() : result.optJSONArray("shared");
+                    else if (page.equals("Shared")) {
+                        sharedFiles = result.optJSONArray("shared") == null ? new JSONArray() : result.optJSONArray("shared");
+                        selectedSharedHashes.retainAll(downloadHashes(sharedFiles));
+                    }
                     else if (page.equals("Clients")) {
                         if (clientListMode.equals("Known")) { knownClients = result.optJSONArray("known_clients") == null ? new JSONArray() : result.optJSONArray("known_clients"); knownClientsTotal = result.optInt("total", knownClients.length()); }
                         else { clients = result.optJSONArray("clients") == null ? new JSONArray() : result.optJSONArray("clients"); clientsTotal = result.optInt("total", clients.length()); }
@@ -445,14 +474,15 @@ public final class MainActivity extends Activity {
                         preferencesLoaded = true;
                         preferencesError = null;
                     }
-                    renderCurrentPage();
+                    if (changed) renderLivePage();
+                    else updateFooter(lastApiError);
                 });
             } catch (Exception failure) {
                 handler.post(() -> {
                     lastApiError = failure.getMessage();
                     if (page.equals("Preferences")) preferencesError = failure.getMessage();
                     if (page.equals(selectedPage)) {
-                        if (page.equals("Preferences")) renderCurrentPage();
+                        if (page.equals("Preferences")) renderLivePage();
                         else updateFooter(lastApiError);
                     }
                 });
@@ -462,6 +492,7 @@ public final class MainActivity extends Activity {
 
     private void refreshSearch() {
         if (api == null) return;
+        final int requestVersion = ++searchRequestVersion;
         new Thread(() -> {
             try {
                 JSONArray listed = api.get("search").optJSONArray("searches");
@@ -485,6 +516,7 @@ public final class MainActivity extends Activity {
                 int oldId = activeSearchId;
                 if (selectedId == 0 || selected == null) {
                     handler.post(() -> {
+                        if (requestVersion != searchRequestVersion) return;
                         boolean changed = !openSearches.toString().equals(visibleSearches.toString()) || activeSearchId != 0;
                         saveActiveSearchUiState();
                         openSearches = visibleSearches;
@@ -493,7 +525,8 @@ public final class MainActivity extends Activity {
                         searchState = "";
                         searchKadActive = false;
                         searchResults = new JSONArray();
-                        if (changed && selectedPage.equals("Search")) renderCurrentPage();
+                        searchResultsLoaded = true;
+                        if (changed && selectedPage.equals("Search")) renderLivePage();
                     });
                     return;
                 }
@@ -506,6 +539,7 @@ public final class MainActivity extends Activity {
                 int id = selectedId;
                 int chosenId = selectedId;
                 handler.post(() -> {
+                    if (requestVersion != searchRequestVersion) return;
                     boolean tabsChanged = !openSearches.toString().equals(visibleSearches.toString());
                     openSearches = visibleSearches;
                     if (id == activeSearchId || activeSearchId == oldId) {
@@ -518,10 +552,11 @@ public final class MainActivity extends Activity {
                                 || !searchState.equals(state) || searchKadActive != kadActive
                                 || !activeSearchQuery.equals(query) || oldId != chosenId;
                         searchResults = rows == null ? new JSONArray() : rows;
+                        searchResultsLoaded = true;
                         activeSearchQuery = query;
                         searchState = state;
                         searchKadActive = kadActive;
-                        if ((changed || tabsChanged) && selectedPage.equals("Search")) renderCurrentPage();
+                        if ((changed || tabsChanged) && selectedPage.equals("Search")) renderLivePage();
                     }
                 });
             } catch (Exception failure) {
@@ -557,6 +592,7 @@ public final class MainActivity extends Activity {
                     activeSearchQuery = clean;
                     searchState = "running";
                     searchResults = new JSONArray();
+                    searchResultsLoaded = false;
                     renderCurrentPage();
                     refreshSearch();
                 });
@@ -572,6 +608,7 @@ public final class MainActivity extends Activity {
         activeSearchId = id;
         restoreSearchUiState(id);
         searchResults = new JSONArray();
+        searchResultsLoaded = false;
         for (int i = 0; i < openSearches.length(); i++) {
             JSONObject item = openSearches.optJSONObject(i);
             if (item != null && item.optInt("search_id") == id) {
@@ -614,6 +651,7 @@ public final class MainActivity extends Activity {
                     activeSearchQuery = name;
                     searchState = "running";
                     searchResults = new JSONArray();
+                    searchResultsLoaded = false;
                     searchKadActive = false;
                     selectedPage = "Search";
                     renderCurrentPage();
@@ -736,6 +774,7 @@ public final class MainActivity extends Activity {
         root.addView(toolbar);
 
         ScrollView scroll = new ScrollView(this);
+        pageScroll = scroll;
         pageContent = new LinearLayout(this);
         pageContent.setOrientation(LinearLayout.VERTICAL);
         pageContent.setPadding(dp(12), dp(14), dp(12), dp(18));
@@ -825,6 +864,15 @@ public final class MainActivity extends Activity {
 
     private void renderCurrentPage() {
         if (pageContent == null) return;
+        liveRenderPending = false;
+        handler.removeCallbacks(pendingLiveRender);
+        if (pageScroll != null && renderedPage != null && !scrollRestorePending) {
+            pageScrollPositions.put(renderedPage, pageScroll.getScrollY());
+        }
+        int targetScroll = pageScrollPositions.getOrDefault(selectedPage, 0);
+        renderedPage = selectedPage;
+        int generation = ++renderGeneration;
+        scrollRestorePending = true;
         pageTitle.setText(tr(selectedPage));
         updateNavigationSelection();
         pageContent.removeAllViews();
@@ -839,6 +887,26 @@ public final class MainActivity extends Activity {
         else if (selectedPage.equals("About")) renderAbout();
         else renderComingSoon();
         updateFooter(lastApiError);
+        if (pageScroll != null) pageScroll.post(() -> {
+            if (renderGeneration == generation && selectedPage.equals(renderedPage)) {
+                pageScroll.scrollTo(0, targetScroll);
+                scrollRestorePending = false;
+            }
+        });
+    }
+
+    private void renderLivePage() {
+        View focused = getCurrentFocus();
+        WindowInsets insets = focused == null ? null : focused.getRootWindowInsets();
+        if (focused instanceof EditText && focused.hasFocus()
+                && (insets == null || insets.isVisible(WindowInsets.Type.ime()))) {
+            liveRenderPending = true;
+            handler.removeCallbacks(pendingLiveRender);
+            handler.postDelayed(pendingLiveRender, 1000);
+            updateFooter(lastApiError);
+            return;
+        }
+        renderCurrentPage();
     }
 
     private void updateNavigationSelection() {
@@ -1516,7 +1584,14 @@ public final class MainActivity extends Activity {
         String[] searchKinds = status.optBoolean("search_all_supported")
                 ? new String[] {"global", "kad", "local", "all"}
                 : new String[] {"global", "kad", "local"};
-        searchType = spinner(searchLabels, "Global");
+        searchType = spinner(searchLabels, searchTypeChoice);
+        searchType.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                if (searchTypeChoice.equals("All networks") && !status.optBoolean("search_all_supported")) return;
+                searchTypeChoice = searchLabels[position];
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+        });
         controls.addView(searchType, new LinearLayout.LayoutParams(0, dp(48), 1));
         Button go = button("Search", true);
         controls.addView(go, new LinearLayout.LayoutParams(0, dp(48), 1));
@@ -1643,7 +1718,7 @@ public final class MainActivity extends Activity {
         Set<String> visibleHashes = new HashSet<>();
         for (JSONObject item : visibleResults) visibleHashes.add(item.optString("hash", ""));
         // Keep bulk actions scoped to rows that remain visible after filtering.
-        selectedSearchHashes.retainAll(visibleHashes);
+        if (searchResultsLoaded) selectedSearchHashes.retainAll(visibleHashes);
         saveActiveSearchUiState();
 
         if (visibleResults.isEmpty()) {
@@ -2465,8 +2540,13 @@ public final class MainActivity extends Activity {
                 catch (Exception ignored) { }
             }
             handler.post(() -> {
+                boolean changed = false;
+                for (Map.Entry<String, JSONObject> entry : updates.entrySet()) {
+                    JSONObject previous = graphData.get(entry.getKey());
+                    if (previous == null || !previous.toString().equals(entry.getValue().toString())) changed = true;
+                }
                 graphData.putAll(updates);
-                if (selectedPage.equals(page)) renderCurrentPage();
+                if (changed && selectedPage.equals(page)) renderLivePage();
             });
         }, "aMule-native-stat-graphs").start();
     }
@@ -3426,6 +3506,7 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         handler.removeCallbacks(poll);
         handler.removeCallbacks(liveRefresh);
+        handler.removeCallbacks(pendingLiveRender);
         eventStreamRunning.set(false);
         if (api != null) api.closeEventStream();
         if (Build.VERSION.SDK_INT >= 33) {
@@ -3436,8 +3517,120 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
+        saveActiveSearchUiState();
+        if (pageScroll != null && renderedPage != null && !scrollRestorePending) {
+            pageScrollPositions.put(renderedPage, pageScroll.getScrollY());
+        }
         outState.putString("native_page", selectedPage);
         outState.putString("native_preferences_tab", preferencesTab);
+        outState.putString("native_search_query", searchQuery);
+        outState.putString("native_search_type", searchTypeChoice);
+        outState.putString("native_search_file_type", searchFileType);
+        outState.putString("native_search_extension", searchExtension);
+        outState.putString("native_search_min_sources", searchMinSources);
+        outState.putString("native_search_min_size", searchMinSize);
+        outState.putString("native_search_max_size", searchMaxSize);
+        outState.putInt("native_active_search", activeSearchId);
+        outState.putString("native_search_filter", searchResultFilter);
+        outState.putString("native_search_have", searchResultHave);
+        outState.putString("native_search_sort", searchResultSort);
+        saveSet(outState, "native_search_hidden", hiddenSearchFields);
+        Bundle searches = new Bundle();
+        for (Map.Entry<Integer, SearchUiState> entry : searchUiStates.entrySet()) {
+            SearchUiState search = entry.getValue();
+            Bundle saved = new Bundle();
+            saved.putString("filter", search.filter);
+            saved.putString("have", search.have);
+            saved.putString("sort", search.sort);
+            saveSet(saved, "selected", search.selectedHashes);
+            saveSet(saved, "hidden", search.hiddenFields);
+            searches.putBundle(String.valueOf(entry.getKey()), saved);
+        }
+        outState.putBundle("native_search_states", searches);
+        outState.putString("native_download_filter", downloadFilterQuery);
+        outState.putString("native_download_status", downloadFilterStatus);
+        outState.putString("native_download_category", downloadFilterCategory);
+        outState.putString("native_download_sort", downloadSort);
+        saveSet(outState, "native_download_selected", selectedDownloadHashes);
+        outState.putString("native_client_mode", clientListMode);
+        outState.putString("native_client_sort", clientsSort);
+        outState.putString("native_client_filter", clientsFilter);
+        outState.putString("native_server_filter", serverFilter);
+        outState.putString("native_server_sort", serverSort);
+        outState.putString("native_shared_filter", sharedFilter);
+        outState.putString("native_shared_upload_filter", sharedUploadFilter);
+        outState.putString("native_shared_sort", sharedSort);
+        saveSet(outState, "native_shared_selected", selectedSharedHashes);
+        Bundle positions = new Bundle();
+        for (Map.Entry<String, Integer> entry : pageScrollPositions.entrySet()) {
+            positions.putInt(entry.getKey(), entry.getValue());
+        }
+        outState.putBundle("native_scroll_positions", positions);
         super.onSaveInstanceState(outState);
+    }
+
+    private void restoreNativeUiState(Bundle state) {
+        selectedPage = state.getString("native_page", selectedPage);
+        preferencesTab = state.getString("native_preferences_tab", preferencesTab);
+        searchQuery = state.getString("native_search_query", searchQuery);
+        searchTypeChoice = state.getString("native_search_type", searchTypeChoice);
+        searchFileType = state.getString("native_search_file_type", searchFileType);
+        searchExtension = state.getString("native_search_extension", searchExtension);
+        searchMinSources = state.getString("native_search_min_sources", searchMinSources);
+        searchMinSize = state.getString("native_search_min_size", searchMinSize);
+        searchMaxSize = state.getString("native_search_max_size", searchMaxSize);
+        activeSearchId = state.getInt("native_active_search", activeSearchId);
+        searchResultFilter = state.getString("native_search_filter", searchResultFilter);
+        searchResultHave = state.getString("native_search_have", searchResultHave);
+        searchResultSort = state.getString("native_search_sort", searchResultSort);
+        restoreSet(state, "native_search_hidden", hiddenSearchFields);
+        Bundle searches = state.getBundle("native_search_states");
+        if (searches != null) {
+            for (String key : searches.keySet()) {
+                int id = parseInt(key, 0);
+                Bundle saved = searches.getBundle(key);
+                if (id <= 0 || saved == null) continue;
+                SearchUiState search = searchUiState(id);
+                search.filter = saved.getString("filter", search.filter);
+                search.have = saved.getString("have", search.have);
+                search.sort = saved.getString("sort", search.sort);
+                restoreSet(saved, "selected", search.selectedHashes);
+                restoreSet(saved, "hidden", search.hiddenFields);
+            }
+        }
+        if (activeSearchId > 0 && searchUiStates.containsKey(activeSearchId)) {
+            restoreSearchUiState(activeSearchId);
+        }
+        downloadFilterQuery = state.getString("native_download_filter", downloadFilterQuery);
+        downloadFilterStatus = state.getString("native_download_status", downloadFilterStatus);
+        downloadFilterCategory = state.getString("native_download_category", downloadFilterCategory);
+        downloadSort = state.getString("native_download_sort", downloadSort);
+        restoreSet(state, "native_download_selected", selectedDownloadHashes);
+        clientListMode = state.getString("native_client_mode", clientListMode);
+        clientsSort = state.getString("native_client_sort", clientsSort);
+        clientsFilter = state.getString("native_client_filter", clientsFilter);
+        serverFilter = state.getString("native_server_filter", serverFilter);
+        serverSort = state.getString("native_server_sort", serverSort);
+        sharedFilter = state.getString("native_shared_filter", sharedFilter);
+        sharedUploadFilter = state.getString("native_shared_upload_filter", sharedUploadFilter);
+        sharedSort = state.getString("native_shared_sort", sharedSort);
+        restoreSet(state, "native_shared_selected", selectedSharedHashes);
+        Bundle positions = state.getBundle("native_scroll_positions");
+        if (positions != null) {
+            for (String page : positions.keySet()) {
+                pageScrollPositions.put(page, positions.getInt(page));
+            }
+        }
+    }
+
+    private static void saveSet(Bundle state, String key, Set<String> values) {
+        state.putStringArrayList(key, new ArrayList<>(values));
+    }
+
+    private static void restoreSet(Bundle state, String key, Set<String> values) {
+        ArrayList<String> saved = state.getStringArrayList(key);
+        if (saved == null) return;
+        values.clear();
+        values.addAll(saved);
     }
 }

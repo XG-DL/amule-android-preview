@@ -23,7 +23,7 @@ The interface offers **English and Spanish** and is designed for a phone screen.
 - **Statistics:** transfer, connection and Kad graphs, session totals and a statistics tree.
 - **Preferences and About:** editable settings exposed by the API, appearance and language choices, version information and update checks.
 
-The native screens refresh from the API's event stream, with polling for reconciliation. Appearance choices are stored on the Android device. The other editable preferences are sent to the running aMule daemon. See the [native interface review record](NATIVE-UI-EXPERIMENT.md) for the controls exercised and current feature differences.
+The native screens refresh from the API's event stream, with polling for reconciliation. A refresh skips unchanged screen data, keeps the current scroll position, and waits while a text field is being edited before rebuilding that screen. Page, search, filter, sort, selection and scroll state survive Android activity recreation. Appearance choices are stored on the Android device. The other editable preferences are sent to the running aMule daemon. See the [native interface review record](NATIVE-UI-EXPERIMENT.md) for the controls exercised and current feature differences.
 
 ## Screenshots
 
