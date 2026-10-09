@@ -1,0 +1,51 @@
+ANDROID APP
+David Smith — Android integration and native interface.
+
+AMULE CORE
+Maintainers:
+Marcelo Jimenez (Phoenix)
+Dévai Tamás (GonoszTopi)
+Werner Mahr (Vollstrecker)
+Developers:
+Johannes Krampf (wuischke)
+Martin Brieg (Stu Redman)
+Balla Marcell (^marcell^)
+Pablo Barciela (Sc0w)
+got3nks
+Graphics: Matt Britt (uberpenguin)
+Creator: Stephane Colin (Creteil / BigBob)
+
+FORMER AMULE DEVELOPERS
+Angel Vidal Veiga (Kry)
+Mikkel Schubert (Xaignar)
+Patrizio Bassi (Hetfield)
+Pedro De Oliveira (falso)
+Stefan Baldus (stefanero)
+Tobias Ottmar (Citroklar)
+Emi Rodriguez (MalaPraxis)
+Ariano Bertacca (bootstrap)
+Ken Thomases (ken)
+Leonid Froenchenko (lfroen)
+K. B. (deltaHF)
+George L. (croaker)
+JT (lemonfan)
+Luca Vagnozzi (shakraw)
+Nikolay Igotti (olonho)
+Norbert Lataille (nonal)
+pure_ascii
+Santiago Gomez (aquatroll)
+Thomas Landsberger (EmilioSandoz)
+umale
+Alex Martinez (Unleashed)
+Jacobo Vilella (Jacobo221)
+efe (the polish)
+Jayson Cowan (hellimod)
+
+EARLIER PROJECTS
+aMule grew from xMule and lMule. Their credited contributors include Timo Kujala (Tiku), Alo Sarv (Madcat), Michael Mueller (malware), Theodore R. Smith (Un-Thesis), Angel Vidal Veiga (Kry), Mikael Berglund (MikaelB), Marcelo Falero (mfalero), Xavier Fuentes (furax), and pure_ascii.
+
+BUNDLED LIBRARIES AND WEB UI
+wxWidgets, Boost, Crypto++, libcurl, OpenSSL, pupnp/libupnp, Expat, zlib, Preact, and htm.
+
+SOURCES
+The upstream aMule AUTHORS.md and this project's THIRD-PARTY-NOTICES.md contain the full author and licence records.

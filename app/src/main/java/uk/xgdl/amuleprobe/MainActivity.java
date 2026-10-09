@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Parcelable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -20,6 +21,7 @@ import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ProgressBar;
@@ -28,6 +30,8 @@ import android.widget.Spinner;
 import android.widget.ArrayAdapter;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import android.text.Editable;
 import android.text.TextWatcher;
 
@@ -36,6 +40,8 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -104,7 +110,12 @@ public final class MainActivity extends Activity {
     private int activeSearchId;
     private final Map<Integer, SearchUiState> searchUiStates = new HashMap<>();
     private final Map<String, Integer> pageScrollPositions = new HashMap<>();
+    private final Map<String, Parcelable> listScrollStates = new HashMap<>();
     private ScrollView pageScroll;
+    private RecyclerView listView;
+    private FileListAdapter listAdapter;
+    private JSONArray listRows;
+    private View listFooter;
     private String renderedPage;
     private int renderGeneration;
     private boolean scrollRestorePending;
@@ -138,12 +149,9 @@ public final class MainActivity extends Activity {
     private String downloadFilterCategory = "All";
     private String downloadSort = "Name";
     private final Set<String> selectedDownloadHashes = new HashSet<>();
-    private LinearLayout downloadRows;
     private TextView downloadTitle;
     private TextView downloadQueueInfo;
     private TextView downloadTotals;
-    private final ArrayList<String> visibleDownloadHashes = new ArrayList<>();
-    private final Map<String, String> visibleDownloadFingerprints = new HashMap<>();
     private String preferencesTab = "General";
     private String nativeTheme = "system";
     private String clientListMode = "Connected";
@@ -755,12 +763,18 @@ public final class MainActivity extends Activity {
         toolbar.addView(menu, new LinearLayout.LayoutParams(dp(48), dp(48)));
         menu.setOnClickListener(this::showNavigation);
 
+        ImageView brandIcon = new ImageView(this);
+        brandIcon.setImageResource(R.drawable.amule_logo);
+        brandIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        brandIcon.setContentDescription(tr("aMule"));
+        toolbar.addView(brandIcon, new LinearLayout.LayoutParams(dp(38), dp(38)));
+
         TextView brand = new TextView(this);
         brand.setText(tr("aMule"));
         brand.setTextColor(BLUE);
         brand.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         brand.setTextSize(16);
-        brand.setPadding(dp(8), 0, dp(14), 0);
+        brand.setPadding(dp(4), 0, dp(10), 0);
         toolbar.addView(brand);
 
         pageTitle = new TextView(this);
@@ -786,6 +800,13 @@ public final class MainActivity extends Activity {
         pageContent.setPadding(dp(12), dp(14), dp(12), dp(18));
         scroll.addView(pageContent);
         root.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        listView = new RecyclerView(this);
+        listView.setLayoutManager(new LinearLayoutManager(this));
+        listView.setClipToPadding(false);
+        listView.setPadding(dp(12), dp(14), dp(12), dp(18));
+        listView.setVisibility(View.GONE);
+        root.addView(listView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
         navigationBar = createNavigationBar();
@@ -872,8 +893,12 @@ public final class MainActivity extends Activity {
         if (pageContent == null) return;
         liveRenderPending = false;
         handler.removeCallbacks(pendingLiveRender);
-        if (pageScroll != null && renderedPage != null && !scrollRestorePending) {
-            pageScrollPositions.put(renderedPage, pageScroll.getScrollY());
+        if (renderedPage != null && !scrollRestorePending) {
+            if (isFileListPage(renderedPage) && listView != null && listView.getLayoutManager() != null) {
+                listScrollStates.put(renderedPage, listView.getLayoutManager().onSaveInstanceState());
+            } else if (pageScroll != null) {
+                pageScrollPositions.put(renderedPage, pageScroll.getScrollY());
+            }
         }
         int targetScroll = pageScrollPositions.getOrDefault(selectedPage, 0);
         renderedPage = selectedPage;
@@ -882,7 +907,8 @@ public final class MainActivity extends Activity {
         pageTitle.setText(tr(selectedPage));
         updateNavigationSelection();
         pageContent.removeAllViews();
-        downloadRows = null;
+        listRows = null;
+        listFooter = null;
         if (selectedPage.equals("Downloads")) renderDownloads();
         else if (selectedPage.equals("Networks")) renderNetworks();
         else if (selectedPage.equals("Search")) renderSearch();
@@ -893,13 +919,120 @@ public final class MainActivity extends Activity {
         else if (selectedPage.equals("Preferences")) renderPreferences();
         else if (selectedPage.equals("About")) renderAbout();
         else renderComingSoon();
+        if (isFileListPage(selectedPage)) {
+            LinearLayout header = new LinearLayout(this);
+            header.setOrientation(LinearLayout.VERTICAL);
+            while (pageContent.getChildCount() > 0) {
+                View child = pageContent.getChildAt(0);
+                pageContent.removeViewAt(0);
+                header.addView(child);
+            }
+            listAdapter = new FileListAdapter(selectedPage, header, listRows, listFooter);
+            listView.setAdapter(listAdapter);
+            pageScroll.setVisibility(View.GONE);
+            listView.setVisibility(View.VISIBLE);
+            Parcelable position = listScrollStates.get(selectedPage);
+            listView.post(() -> {
+                if (renderGeneration == generation && selectedPage.equals(renderedPage)) {
+                    if (position != null) listView.getLayoutManager().onRestoreInstanceState(position);
+                    scrollRestorePending = false;
+                }
+            });
+        } else {
+            listAdapter = null;
+            listView.setAdapter(null);
+            listView.setVisibility(View.GONE);
+            pageScroll.setVisibility(View.VISIBLE);
+        }
         updateFooter(lastApiError);
-        if (pageScroll != null) pageScroll.post(() -> {
+        if (!isFileListPage(selectedPage) && pageScroll != null) pageScroll.post(() -> {
             if (renderGeneration == generation && selectedPage.equals(renderedPage)) {
                 pageScroll.scrollTo(0, targetScroll);
                 scrollRestorePending = false;
             }
         });
+    }
+
+    private static boolean isFileListPage(String page) {
+        return page.equals("Downloads") || page.equals("Search") || page.equals("Shared");
+    }
+
+    private final class FileListAdapter extends RecyclerView.Adapter<FileListAdapter.Holder> {
+        private static final int HEADER = 0;
+        private static final int ROW = 1;
+        private static final int FOOTER = 2;
+        private final String page;
+        private final View header;
+        private final View footer;
+        private final ArrayList<JSONObject> rows = new ArrayList<>();
+
+        FileListAdapter(String page, View header, JSONArray items, View footer) {
+            this.page = page;
+            this.header = header;
+            this.footer = footer;
+            if (items != null) for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.optJSONObject(i);
+                if (item != null) rows.add(item);
+            }
+        }
+
+        @Override public int getItemCount() { return rows.size() + 1 + (footer == null ? 0 : 1); }
+        @Override public int getItemViewType(int position) {
+            if (position == 0) return HEADER;
+            if (footer != null && position == rows.size() + 1) return FOOTER;
+            return ROW;
+        }
+        @Override public Holder onCreateViewHolder(ViewGroup parent, int type) {
+            FrameLayout container = new FrameLayout(MainActivity.this);
+            container.setLayoutParams(new RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            return new Holder(container);
+        }
+        @Override public void onBindViewHolder(Holder holder, int position) {
+            holder.container.removeAllViews();
+            View content;
+            if (position == 0) content = header;
+            else if (footer != null && position == rows.size() + 1) content = footer;
+            else {
+                JSONObject row = rows.get(position - 1);
+                if (page.equals("Downloads")) content = downloadCard(row);
+                else if (page.equals("Search")) content = searchResultCard(row);
+                else content = sharedFileCard(row);
+            }
+            ViewGroup oldParent = (ViewGroup) content.getParent();
+            if (oldParent != null) oldParent.removeView(content);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (position > 0 && (footer == null || position <= rows.size())) params.bottomMargin = dp(page.equals("Downloads") ? 10 : 8);
+            holder.container.addView(content, params);
+        }
+        void updateRows(JSONArray items) {
+            ArrayList<JSONObject> next = new ArrayList<>();
+            if (items != null) for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.optJSONObject(i);
+                if (item != null) next.add(item);
+            }
+            boolean sameOrder = next.size() == rows.size();
+            if (sameOrder) for (int i = 0; i < next.size(); i++) {
+                if (!next.get(i).optString("hash").equals(rows.get(i).optString("hash"))) { sameOrder = false; break; }
+            }
+            if (sameOrder) {
+                for (int i = 0; i < next.size(); i++) {
+                    if (!next.get(i).toString().equals(rows.get(i).toString())) {
+                        rows.set(i, next.get(i));
+                        notifyItemChanged(i + 1);
+                    }
+                }
+            } else {
+                rows.clear();
+                rows.addAll(next);
+                notifyDataSetChanged();
+            }
+        }
+        final class Holder extends RecyclerView.ViewHolder {
+            final FrameLayout container;
+            Holder(FrameLayout container) { super(container); this.container = container; }
+        }
     }
 
     private void renderLivePage() {
@@ -1035,8 +1168,6 @@ public final class MainActivity extends Activity {
         downloadQueueInfo = info;
         JSONArray visibleDownloads = filteredDownloads();
         selectedDownloadHashes.retainAll(downloadHashes(visibleDownloads));
-        visibleDownloadHashes.clear();
-        visibleDownloadFingerprints.clear();
         info.setText(tr("Download queue  ·  " + visibleDownloads.length() + " shown of " + downloads.length()
                 + "  ·  " + selectedDownloadHashes.size() + " selected"));
         info.setTextColor(MUTED);
@@ -1062,24 +1193,14 @@ public final class MainActivity extends Activity {
             empty.addView(hint);
             pageContent.addView(empty, marginParams(0, 0, 0, 12));
         } else {
-            downloadRows = new LinearLayout(this);
-            downloadRows.setOrientation(LinearLayout.VERTICAL);
-            for (int i = 0; i < visibleDownloads.length(); i++) {
-                JSONObject download = visibleDownloads.optJSONObject(i);
-                if (download == null) continue;
-                String hash = download.optString("hash");
-                visibleDownloadHashes.add(hash);
-                visibleDownloadFingerprints.put(hash, download.toString());
-                downloadRows.addView(downloadCard(download), marginParams(0, 0, 0, 10));
-            }
-            pageContent.addView(downloadRows);
+            listRows = visibleDownloads;
         }
 
         LinearLayout totals = card();
         TextView totalText = bodyText(downloadTotalsText());
         downloadTotals = totalText;
         totals.addView(totalText);
-        pageContent.addView(totals);
+        listFooter = totals;
     }
 
     private String downloadTotalsText() {
@@ -1098,37 +1219,24 @@ public final class MainActivity extends Activity {
     }
 
     private void updateDownloadRows() {
-        if (!selectedPage.equals("Downloads") || downloadRows == null) {
+        if (!selectedPage.equals("Downloads") || listAdapter == null) {
             renderLivePage();
             return;
         }
         JSONArray visible = filteredDownloads();
-        if (visible.length() != visibleDownloadHashes.size()) {
+        if (visible.length() != listAdapter.rows.size()) {
+            selectedDownloadHashes.retainAll(downloadHashes(visible));
             renderLivePage();
             return;
         }
         for (int i = 0; i < visible.length(); i++) {
             JSONObject row = visible.optJSONObject(i);
-            if (row == null || !row.optString("hash").equals(visibleDownloadHashes.get(i))) {
+            if (row == null || !row.optString("hash").equals(listAdapter.rows.get(i).optString("hash"))) {
                 renderLivePage();
                 return;
             }
         }
-        int scrollY = pageScroll == null ? 0 : pageScroll.getScrollY();
-        boolean replaced = false;
-        for (int i = 0; i < visible.length(); i++) {
-            JSONObject row = visible.optJSONObject(i);
-            String hash = row.optString("hash");
-            String fingerprint = row.toString();
-            if (fingerprint.equals(visibleDownloadFingerprints.get(hash))) continue;
-            downloadRows.removeViewAt(i);
-            downloadRows.addView(downloadCard(row), i, marginParams(0, 0, 0, 10));
-            visibleDownloadFingerprints.put(hash, fingerprint);
-            replaced = true;
-        }
-        if (replaced && pageScroll != null) pageScroll.post(() -> {
-            if (selectedPage.equals("Downloads")) pageScroll.scrollTo(0, scrollY);
-        });
+        listAdapter.updateRows(visible);
         downloadTitle.setText(tr("All  " + downloads.length()));
         downloadQueueInfo.setText(tr("Download queue  ·  " + visible.length() + " shown of "
                 + downloads.length() + "  ·  " + selectedDownloadHashes.size() + " selected"));
@@ -1788,72 +1896,75 @@ public final class MainActivity extends Activity {
             none.addView(bodyText(searchResults.length() == 0 ? "No results yet. Search results can take a little while to arrive." : "No results match these filters."));
             pageContent.addView(none);
         }
-        for (JSONObject result : visibleResults) {
-            LinearLayout row = card();
-            LinearLayout titleRow = horizontal();
-            TextView name = new TextView(this);
-            name.setText(result.optString("name", "Unknown file"));
-            name.setTextColor(INK);
-            name.setTextSize(16);
-            name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            titleRow.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            String hash = result.optString("hash", "");
-            CheckBox select = new CheckBox(this);
-            select.setContentDescription("Select " + result.optString("name", "file"));
-            select.setChecked(selectedSearchHashes.contains(hash));
-            select.setOnCheckedChangeListener((button, checked) -> {
-                if (checked) selectedSearchHashes.add(hash); else selectedSearchHashes.remove(hash);
-                saveActiveSearchUiState();
-                renderCurrentPage();
-            });
-            titleRow.addView(select);
-            row.addView(titleRow);
-            JSONObject sources = result.optJSONObject("sources");
-            int sourceCount = sources == null ? result.optInt("source_count", 0) : sources.optInt("total", 0);
-            ArrayList<String> details = new ArrayList<>();
-            if (!hiddenSearchFields.contains("size")) details.add(bytes(result.optLong("size_bytes")));
-            if (!hiddenSearchFields.contains("sources")) {
-                int completeSources = sources == null ? 0 : sources.optInt("complete", 0);
-                details.add(completeSources > 0 ? sourceCount + " (" + completeSources + ") sources" : sourceCount + " sources");
-            }
-            int rating = result.optInt("rating");
-            if (!hiddenSearchFields.contains("rating")) details.add(rating > 0 ? rating + "/5 rating" : "Unrated");
-            String fileType = result.optString("file_type", "");
-            if (!hiddenSearchFields.contains("type") && !fileType.isEmpty()) details.add(prettyPreferenceKey(fileType));
-            String resultStatus = result.optString("status", "");
-            if (!hiddenSearchFields.contains("status") && !resultStatus.isEmpty()) details.add(resultStatus);
-            String directory = result.optString("directory", "");
-            if (!hiddenSearchFields.contains("directory") && !directory.isEmpty()) details.add(directory);
-            if (!details.isEmpty()) row.addView(bodyText(String.join("  ·  ", details)));
-            JSONObject media = result.optJSONObject("media");
-            if (media != null) {
-                ArrayList<String> mediaDetails = new ArrayList<>();
-                String artist = media.optString("artist", "");
-                String album = media.optString("album", "");
-                String title = media.optString("title", "");
-                if (!hiddenSearchFields.contains("artist") && !artist.isEmpty()) mediaDetails.add(artist);
-                if (!hiddenSearchFields.contains("album") && !album.isEmpty()) mediaDetails.add(album);
-                if (!hiddenSearchFields.contains("title") && !title.isEmpty()) mediaDetails.add(title);
-                long duration = media.optLong("duration_seconds");
-                if (!hiddenSearchFields.contains("length") && duration > 0) mediaDetails.add(String.format(java.util.Locale.UK, "%d:%02d", duration / 60, duration % 60));
-                int bitrate = media.optInt("bitrate_kilobits_per_second");
-                if (!hiddenSearchFields.contains("bitrate") && bitrate > 0) mediaDetails.add(bitrate + " kb/s");
-                String codec = media.optString("codec", "");
-                if (!hiddenSearchFields.contains("codec") && !codec.isEmpty()) mediaDetails.add(codec);
-                if (!mediaDetails.isEmpty()) row.addView(bodyText(String.join("  ·  ", mediaDetails)));
-            }
-            boolean alreadyQueued = result.optBoolean("already_downloaded");
-            Button add = button(alreadyQueued ? "Already in downloads" : "Add to downloads", !alreadyQueued);
-            add.setEnabled(!alreadyQueued);
-            add.setOnClickListener(view -> addSearchResult(result));
-            LinearLayout resultActions = horizontal();
-            resultActions.addView(add, new LinearLayout.LayoutParams(0, dp(44), 1));
-            Button comments = button("Comments", false);
-            comments.setOnClickListener(view -> showSearchComments(result));
-            resultActions.addView(comments, new LinearLayout.LayoutParams(0, dp(44), 1));
-            row.addView(resultActions, marginParams(0, 8, 0, 0));
-            pageContent.addView(row, marginParams(0, 0, 0, 8));
+        listRows = new JSONArray();
+        for (JSONObject result : visibleResults) listRows.put(result);
+    }
+
+    private View searchResultCard(JSONObject result) {
+        LinearLayout row = card();
+        LinearLayout titleRow = horizontal();
+        TextView name = new TextView(this);
+        name.setText(result.optString("name", "Unknown file"));
+        name.setTextColor(INK);
+        name.setTextSize(16);
+        name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        titleRow.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        String hash = result.optString("hash", "");
+        CheckBox select = new CheckBox(this);
+        select.setContentDescription("Select " + result.optString("name", "file"));
+        select.setChecked(selectedSearchHashes.contains(hash));
+        select.setOnCheckedChangeListener((button, checked) -> {
+            if (checked) selectedSearchHashes.add(hash); else selectedSearchHashes.remove(hash);
+            saveActiveSearchUiState();
+            renderCurrentPage();
+        });
+        titleRow.addView(select);
+        row.addView(titleRow);
+        JSONObject sources = result.optJSONObject("sources");
+        int sourceCount = sources == null ? result.optInt("source_count", 0) : sources.optInt("total", 0);
+        ArrayList<String> details = new ArrayList<>();
+        if (!hiddenSearchFields.contains("size")) details.add(bytes(result.optLong("size_bytes")));
+        if (!hiddenSearchFields.contains("sources")) {
+            int completeSources = sources == null ? 0 : sources.optInt("complete", 0);
+            details.add(completeSources > 0 ? sourceCount + " (" + completeSources + ") sources" : sourceCount + " sources");
         }
+        int rating = result.optInt("rating");
+        if (!hiddenSearchFields.contains("rating")) details.add(rating > 0 ? rating + "/5 rating" : "Unrated");
+        String fileType = result.optString("file_type", "");
+        if (!hiddenSearchFields.contains("type") && !fileType.isEmpty()) details.add(prettyPreferenceKey(fileType));
+        String resultStatus = result.optString("status", "");
+        if (!hiddenSearchFields.contains("status") && !resultStatus.isEmpty()) details.add(resultStatus);
+        String directory = result.optString("directory", "");
+        if (!hiddenSearchFields.contains("directory") && !directory.isEmpty()) details.add(directory);
+        if (!details.isEmpty()) row.addView(bodyText(String.join("  ·  ", details)));
+        JSONObject media = result.optJSONObject("media");
+        if (media != null) {
+            ArrayList<String> mediaDetails = new ArrayList<>();
+            String artist = media.optString("artist", "");
+            String album = media.optString("album", "");
+            String title = media.optString("title", "");
+            if (!hiddenSearchFields.contains("artist") && !artist.isEmpty()) mediaDetails.add(artist);
+            if (!hiddenSearchFields.contains("album") && !album.isEmpty()) mediaDetails.add(album);
+            if (!hiddenSearchFields.contains("title") && !title.isEmpty()) mediaDetails.add(title);
+            long duration = media.optLong("duration_seconds");
+            if (!hiddenSearchFields.contains("length") && duration > 0) mediaDetails.add(String.format(java.util.Locale.UK, "%d:%02d", duration / 60, duration % 60));
+            int bitrate = media.optInt("bitrate_kilobits_per_second");
+            if (!hiddenSearchFields.contains("bitrate") && bitrate > 0) mediaDetails.add(bitrate + " kb/s");
+            String codec = media.optString("codec", "");
+            if (!hiddenSearchFields.contains("codec") && !codec.isEmpty()) mediaDetails.add(codec);
+            if (!mediaDetails.isEmpty()) row.addView(bodyText(String.join("  ·  ", mediaDetails)));
+        }
+        boolean alreadyQueued = result.optBoolean("already_downloaded");
+        Button add = button(alreadyQueued ? "Already in downloads" : "Add to downloads", !alreadyQueued);
+        add.setEnabled(!alreadyQueued);
+        add.setOnClickListener(view -> addSearchResult(result));
+        LinearLayout resultActions = horizontal();
+        resultActions.addView(add, new LinearLayout.LayoutParams(0, dp(44), 1));
+        Button comments = button("Comments", false);
+        comments.setOnClickListener(view -> showSearchComments(result));
+        resultActions.addView(comments, new LinearLayout.LayoutParams(0, dp(44), 1));
+        row.addView(resultActions, marginParams(0, 8, 0, 0));
+        return row;
     }
 
     private void addSearchResultTools() {
@@ -2142,33 +2253,34 @@ public final class MainActivity extends Activity {
         if (visibleFiles.length() == 0) {
             LinearLayout empty = card(); empty.addView(bodyText("No shared files were returned by aMule.")); pageContent.addView(empty); return;
         }
-        for (int i = 0; i < visibleFiles.length(); i++) {
-            JSONObject file = visibleFiles.optJSONObject(i); if (file == null) continue;
-            LinearLayout item = card();
-            CheckBox selected = new CheckBox(this); selected.setText(tr("Select")); selected.setChecked(selectedSharedHashes.contains(file.optString("hash")));
-            selected.setOnCheckedChangeListener((button, checked) -> { if (checked) selectedSharedHashes.add(file.optString("hash")); else selectedSharedHashes.remove(file.optString("hash")); });
-            item.addView(selected);
-            TextView name = bodyText(displayValue(file, "name", "Unknown file"));
-            name.setTextColor(INK); name.setTextSize(16); name.setTypeface(Typeface.DEFAULT, Typeface.BOLD); name.setOnClickListener(v -> showSharedDetails(file)); item.addView(name);
-            item.addView(bodyText(bytes(file.optLong("size_bytes")) + "  ·  " + file.optInt("uploading_client_count") + " " + tr("uploading") + "  ·  " + speed(file.optLong("upload_speed_bytes_per_second"))));
-            item.addView(bodyText("Uploaded this session " + bytes(file.optLong("uploaded_bytes_session")) + "  ·  lifetime " + bytes(file.optLong("uploaded_bytes_total"))));
-            LinearLayout actions = horizontal();
-            Button priority = button("Priority: " + file.optString("priority", "auto"), false);
-            priority.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(tr("Upload priority"))
-                    .setItems(localizedOptions(new String[] {"Auto", "Very low", "Low", "Normal", "High", "Release"}), (dialog, choice) -> {
-                        String[] values = {"auto", "very_low", "low", "normal", "high", "release"};
-                        mutate("PATCH", "shared/" + file.optString("hash"), json("priority", values[choice]), "Priority updated");
-                    }).show());
-            actions.addView(priority, new LinearLayout.LayoutParams(0, dp(44), 1));
-            Button verify = button("Verify", false);
-            verify.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(tr("Verify shared file?")).setMessage(tr("aMule will re-hash this file in the background."))
-                    .setNegativeButton(tr("Cancel"), null).setPositiveButton(tr("Verify"), (d, w) -> mutate("POST", "shared/" + file.optString("hash") + "/verify", new JSONObject(), "Verification started")).show());
-            actions.addView(verify, new LinearLayout.LayoutParams(0, dp(44), 1));
-            Button details = button("Details", false); details.setOnClickListener(view -> showSharedDetails(file));
-            actions.addView(details, new LinearLayout.LayoutParams(0, dp(44), 1));
-            item.addView(actions, marginParams(0, 6, 0, 0));
-            pageContent.addView(item, marginParams(0, 0, 0, 8));
-        }
+        listRows = visibleFiles;
+    }
+
+    private View sharedFileCard(JSONObject file) {
+        LinearLayout item = card();
+        CheckBox selected = new CheckBox(this); selected.setText(tr("Select")); selected.setChecked(selectedSharedHashes.contains(file.optString("hash")));
+        selected.setOnCheckedChangeListener((button, checked) -> { if (checked) selectedSharedHashes.add(file.optString("hash")); else selectedSharedHashes.remove(file.optString("hash")); });
+        item.addView(selected);
+        TextView name = bodyText(displayValue(file, "name", "Unknown file"));
+        name.setTextColor(INK); name.setTextSize(16); name.setTypeface(Typeface.DEFAULT, Typeface.BOLD); name.setOnClickListener(v -> showSharedDetails(file)); item.addView(name);
+        item.addView(bodyText(bytes(file.optLong("size_bytes")) + "  ·  " + file.optInt("uploading_client_count") + " " + tr("uploading") + "  ·  " + speed(file.optLong("upload_speed_bytes_per_second"))));
+        item.addView(bodyText("Uploaded this session " + bytes(file.optLong("uploaded_bytes_session")) + "  ·  lifetime " + bytes(file.optLong("uploaded_bytes_total"))));
+        LinearLayout actions = horizontal();
+        Button priority = button("Priority: " + file.optString("priority", "auto"), false);
+        priority.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(tr("Upload priority"))
+                .setItems(localizedOptions(new String[] {"Auto", "Very low", "Low", "Normal", "High", "Release"}), (dialog, choice) -> {
+                    String[] values = {"auto", "very_low", "low", "normal", "high", "release"};
+                    mutate("PATCH", "shared/" + file.optString("hash"), json("priority", values[choice]), "Priority updated");
+                }).show());
+        actions.addView(priority, new LinearLayout.LayoutParams(0, dp(44), 1));
+        Button verify = button("Verify", false);
+        verify.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(tr("Verify shared file?")).setMessage(tr("aMule will re-hash this file in the background."))
+                .setNegativeButton(tr("Cancel"), null).setPositiveButton(tr("Verify"), (d, w) -> mutate("POST", "shared/" + file.optString("hash") + "/verify", new JSONObject(), "Verification started")).show());
+        actions.addView(verify, new LinearLayout.LayoutParams(0, dp(44), 1));
+        Button details = button("Details", false); details.setOnClickListener(view -> showSharedDetails(file));
+        actions.addView(details, new LinearLayout.LayoutParams(0, dp(44), 1));
+        item.addView(actions, marginParams(0, 6, 0, 0));
+        return item;
     }
 
     private JSONArray filteredSharedFiles() {
@@ -3331,8 +3443,18 @@ public final class MainActivity extends Activity {
 
     private void renderAbout() {
         LinearLayout about = card();
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.amule_logo);
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        logo.setContentDescription(tr("aMule"));
+        LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(72), dp(72));
+        logoParams.gravity = Gravity.CENTER_HORIZONTAL;
+        about.addView(logo, logoParams);
         TextView title = bodyText("aMule for Android"); title.setTextColor(INK); title.setTextSize(20); title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        about.addView(title);
+        title.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleParams.topMargin = dp(6);
+        about.addView(title, titleParams);
         String version = "unknown";
         try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
         catch (android.content.pm.PackageManager.NameNotFoundException ignored) { }
@@ -3379,9 +3501,45 @@ public final class MainActivity extends Activity {
         }
         pageContent.addView(versions, marginParams(0, 0, 0, 10));
 
+        Button contributors = button("Contributors", false);
+        contributors.setOnClickListener(view -> showContributors());
+        pageContent.addView(contributors, marginParams(0, 0, 0, 10));
+
         Button web = button("Open full Web UI", true);
         web.setOnClickListener(view -> startActivity(new Intent(this, WebUiActivity.class)));
         pageContent.addView(web, marginParams(0, 0, 0, 10));
+    }
+
+    private void showContributors() {
+        String credits;
+        try (InputStream input = getAssets().open("contributors.txt")) {
+            credits = new String(input.readAllBytes(), StandardCharsets.UTF_8).trim();
+        } catch (IOException error) {
+            nativeToast(tr("Could not load contributors"), Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(8), dp(20), dp(12));
+        for (String section : credits.split("\\n\\s*\\n")) {
+            int lineEnd = section.indexOf('\n');
+            if (lineEnd < 0) continue;
+            TextView heading = bodyText(section.substring(0, lineEnd));
+            heading.setTextColor(INK);
+            heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            content.addView(heading, marginParams(0, 10, 0, 2));
+            content.addView(bodyText(section.substring(lineEnd + 1).trim()));
+        }
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content);
+        FrameLayout dialogContent = new FrameLayout(this);
+        dialogContent.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)));
+        new AlertDialog.Builder(this)
+                .setTitle(tr("Contributors"))
+                .setView(dialogContent)
+                .setPositiveButton(tr("Close"), null)
+                .show();
     }
 
     private void loadAboutVersion() {
@@ -3580,8 +3738,12 @@ public final class MainActivity extends Activity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         saveActiveSearchUiState();
-        if (pageScroll != null && renderedPage != null && !scrollRestorePending) {
-            pageScrollPositions.put(renderedPage, pageScroll.getScrollY());
+        if (renderedPage != null && !scrollRestorePending) {
+            if (isFileListPage(renderedPage) && listView != null && listView.getLayoutManager() != null) {
+                listScrollStates.put(renderedPage, listView.getLayoutManager().onSaveInstanceState());
+            } else if (pageScroll != null) {
+                pageScrollPositions.put(renderedPage, pageScroll.getScrollY());
+            }
         }
         outState.putString("native_page", selectedPage);
         outState.putString("native_preferences_tab", preferencesTab);
@@ -3628,6 +3790,11 @@ public final class MainActivity extends Activity {
             positions.putInt(entry.getKey(), entry.getValue());
         }
         outState.putBundle("native_scroll_positions", positions);
+        Bundle listPositions = new Bundle();
+        for (Map.Entry<String, Parcelable> entry : listScrollStates.entrySet()) {
+            listPositions.putParcelable(entry.getKey(), entry.getValue());
+        }
+        outState.putBundle("native_list_positions", listPositions);
         super.onSaveInstanceState(outState);
     }
 
@@ -3681,6 +3848,13 @@ public final class MainActivity extends Activity {
         if (positions != null) {
             for (String page : positions.keySet()) {
                 pageScrollPositions.put(page, positions.getInt(page));
+            }
+        }
+        Bundle listPositions = state.getBundle("native_list_positions");
+        if (listPositions != null) {
+            for (String page : listPositions.keySet()) {
+                Parcelable position = listPositions.getParcelable(page, Parcelable.class);
+                if (position != null) listScrollStates.put(page, position);
             }
         }
     }

@@ -25,6 +25,7 @@ final class NativeStrings {
     private void loadCommonWords() {
         words.put("Networks", "Redes"); words.put("Search", "Buscar"); words.put("Downloads", "Descargas"); words.put("Shared", "Compartidos"); words.put("More", "Más");
         words.put("Clients", "Clientes"); words.put("Messages", "Mensajes"); words.put("Statistics", "Estadísticas"); words.put("Preferences", "Preferencias"); words.put("About", "Acerca de");
+        words.put("Contributors", "Colaboradores"); words.put("Could not load contributors", "No se pudo cargar la lista de colaboradores");
         words.put("Conversations", "Conversaciones"); words.put("Connected clients", "Clientes conectados"); words.put("Known clients", "Clientes conocidos");
         words.put("Friend controls", "Controles de amigos");
         words.put("Full Web UI", "Interfaz web completa");
