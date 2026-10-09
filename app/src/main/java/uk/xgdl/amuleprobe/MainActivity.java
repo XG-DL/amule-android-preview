@@ -16,6 +16,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -31,6 +33,7 @@ import android.widget.ArrayAdapter;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -152,6 +155,8 @@ public final class MainActivity extends Activity {
     private TextView downloadTitle;
     private TextView downloadQueueInfo;
     private TextView downloadTotals;
+    private TextView searchSummary;
+    private final Map<Integer, Button> searchTabButtons = new HashMap<>();
     private String preferencesTab = "General";
     private String nativeTheme = "system";
     private String clientListMode = "Connected";
@@ -555,6 +560,7 @@ public final class MainActivity extends Activity {
                 handler.post(() -> {
                     if (requestVersion != searchRequestVersion) return;
                     boolean tabsChanged = !openSearches.toString().equals(visibleSearches.toString());
+                    boolean sameTabs = sameSearchTabs(openSearches, visibleSearches);
                     openSearches = visibleSearches;
                     if (id == activeSearchId || activeSearchId == oldId) {
                         if (activeSearchId != chosenId) {
@@ -562,21 +568,62 @@ public final class MainActivity extends Activity {
                             restoreSearchUiState(chosenId);
                         }
                         activeSearchId = chosenId;
+                        int previousResultCount = searchResults.length();
                         boolean changed = !searchResults.toString().equals((rows == null ? new JSONArray() : rows).toString())
                                 || !searchState.equals(state) || searchKadActive != kadActive
                                 || !activeSearchQuery.equals(query) || oldId != chosenId;
+                        boolean canUpdateRows = sameTabs && oldId == chosenId
+                                && searchState.equals(state) && searchKadActive == kadActive
+                                && activeSearchQuery.equals(query) && selectedPage.equals("Search")
+                                && listAdapter != null && listAdapter.page.equals("Search");
                         searchResults = rows == null ? new JSONArray() : rows;
                         searchResultsLoaded = true;
                         activeSearchQuery = query;
                         searchState = state;
                         searchKadActive = kadActive;
-                        if ((changed || tabsChanged) && selectedPage.equals("Search")) renderLivePage();
+                        if ((changed || tabsChanged) && selectedPage.equals("Search")) {
+                            if (canUpdateRows && (previousResultCount == 0) == (searchResults.length() == 0))
+                                updateSearchRows();
+                            else renderLivePage();
+                        }
                     }
                 });
             } catch (Exception failure) {
                 lastApiError = failure.getMessage();
             }
         }, "aMule-native-search-refresh").start();
+    }
+
+    private static boolean sameSearchTabs(JSONArray before, JSONArray after) {
+        if (before.length() != after.length()) return false;
+        for (int i = 0; i < before.length(); i++) {
+            JSONObject oldTab = before.optJSONObject(i);
+            JSONObject newTab = after.optJSONObject(i);
+            if (oldTab == null || newTab == null
+                    || oldTab.optInt("search_id") != newTab.optInt("search_id")
+                    || !oldTab.optString("query").equals(newTab.optString("query"))) return false;
+        }
+        return true;
+    }
+
+    private void updateSearchRows() {
+        JSONArray visible = filteredSearchResults();
+        if (listAdapter == null || (visible.length() == 0) != listAdapter.rows.isEmpty()) {
+            renderLivePage();
+            return;
+        }
+        listAdapter.updateRows(visible);
+        if (searchSummary != null) searchSummary.setText(activeSearchQuery + "  ·  " + searchState
+                + "  ·  " + searchResults.length() + " results");
+        for (int i = 0; i < openSearches.length(); i++) {
+            JSONObject item = openSearches.optJSONObject(i);
+            if (item == null) continue;
+            int id = item.optInt("search_id");
+            Button tab = searchTabButtons.get(id);
+            if (tab != null) tab.setText(tr(item.optString("query", "Search " + id)
+                    + "  ·  " + item.optInt("result_count")));
+        }
+        updateFooter(lastApiError);
     }
 
     private void startSearch(String query, String type) {
@@ -803,6 +850,7 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         listView = new RecyclerView(this);
         listView.setLayoutManager(new LinearLayoutManager(this));
+        listView.setItemAnimator(null);
         listView.setClipToPadding(false);
         listView.setPadding(dp(12), dp(14), dp(12), dp(18));
         listView.setVisibility(View.GONE);
@@ -909,6 +957,8 @@ public final class MainActivity extends Activity {
         pageContent.removeAllViews();
         listRows = null;
         listFooter = null;
+        searchSummary = null;
+        searchTabButtons.clear();
         if (selectedPage.equals("Downloads")) renderDownloads();
         else if (selectedPage.equals("Networks")) renderNetworks();
         else if (selectedPage.equals("Search")) renderSearch();
@@ -989,12 +1039,37 @@ public final class MainActivity extends Activity {
             return new Holder(container);
         }
         @Override public void onBindViewHolder(Holder holder, int position) {
+            if (position > 0 && position <= rows.size()) {
+                JSONObject item = rows.get(position - 1);
+                String hash = item.optString("hash", "");
+                if (!hash.isEmpty() && hash.equals(holder.boundHash) && page.equals(holder.boundPage)
+                        && holder.container.getChildCount() == 1) {
+                    View card = holder.container.getChildAt(0);
+                    if (page.equals("Downloads")) {
+                        bindDownloadCard(card, item);
+                        return;
+                    }
+                    if (page.equals("Search")) {
+                        bindSearchResultCard(card, item);
+                        return;
+                    }
+                }
+            }
             holder.container.removeAllViews();
             View content;
-            if (position == 0) content = header;
-            else if (footer != null && position == rows.size() + 1) content = footer;
+            if (position == 0) {
+                holder.boundHash = null;
+                holder.boundPage = null;
+                content = header;
+            } else if (footer != null && position == rows.size() + 1) {
+                holder.boundHash = null;
+                holder.boundPage = null;
+                content = footer;
+            }
             else {
                 JSONObject row = rows.get(position - 1);
+                holder.boundHash = row.optString("hash", "");
+                holder.boundPage = page;
                 if (page.equals("Downloads")) content = downloadCard(row);
                 else if (page.equals("Search")) content = searchResultCard(row);
                 else content = sharedFileCard(row);
@@ -1012,25 +1087,31 @@ public final class MainActivity extends Activity {
                 JSONObject item = items.optJSONObject(i);
                 if (item != null) next.add(item);
             }
-            boolean sameOrder = next.size() == rows.size();
-            if (sameOrder) for (int i = 0; i < next.size(); i++) {
-                if (!next.get(i).optString("hash").equals(rows.get(i).optString("hash"))) { sameOrder = false; break; }
-            }
-            if (sameOrder) {
-                for (int i = 0; i < next.size(); i++) {
-                    if (!next.get(i).toString().equals(rows.get(i).toString())) {
-                        rows.set(i, next.get(i));
-                        notifyItemChanged(i + 1);
-                    }
+            ArrayList<JSONObject> previous = new ArrayList<>(rows);
+            DiffUtil.DiffResult changes = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+                @Override public int getOldListSize() { return previous.size(); }
+                @Override public int getNewListSize() { return next.size(); }
+                @Override public boolean areItemsTheSame(int oldPosition, int newPosition) {
+                    return previous.get(oldPosition).optString("hash", "")
+                            .equals(next.get(newPosition).optString("hash", ""));
                 }
-            } else {
-                rows.clear();
-                rows.addAll(next);
-                notifyDataSetChanged();
-            }
+                @Override public boolean areContentsTheSame(int oldPosition, int newPosition) {
+                    return previous.get(oldPosition).toString().equals(next.get(newPosition).toString());
+                }
+            });
+            rows.clear();
+            rows.addAll(next);
+            changes.dispatchUpdatesTo(new androidx.recyclerview.widget.ListUpdateCallback() {
+                @Override public void onInserted(int position, int count) { notifyItemRangeInserted(position + 1, count); }
+                @Override public void onRemoved(int position, int count) { notifyItemRangeRemoved(position + 1, count); }
+                @Override public void onMoved(int fromPosition, int toPosition) { notifyItemMoved(fromPosition + 1, toPosition + 1); }
+                @Override public void onChanged(int position, int count, Object payload) { notifyItemRangeChanged(position + 1, count, payload); }
+            });
         }
         final class Holder extends RecyclerView.ViewHolder {
             final FrameLayout container;
+            String boundHash;
+            String boundPage;
             Holder(FrameLayout container) { super(container); this.container = container; }
         }
     }
@@ -1349,6 +1430,73 @@ public final class MainActivity extends Activity {
         }).setNegativeButton(tr("Cancel"), null).show();
     }
 
+    private static final class DownloadCardBinding {
+        final TextView name;
+        final CheckBox selected;
+        final TextView details;
+        final ProgressBar progress;
+        final Button toggle;
+        final Button remove;
+        final Button priority;
+        final Button category;
+        final Button detail;
+
+        DownloadCardBinding(TextView name, CheckBox selected, TextView details, ProgressBar progress,
+                Button toggle, Button remove, Button priority, Button category, Button detail) {
+            this.name = name;
+            this.selected = selected;
+            this.details = details;
+            this.progress = progress;
+            this.toggle = toggle;
+            this.remove = remove;
+            this.priority = priority;
+            this.category = category;
+            this.detail = detail;
+        }
+    }
+
+    private void bindDownloadCard(View card, JSONObject download) {
+        DownloadCardBinding binding = (DownloadCardBinding) card.getTag();
+        String name = download.optString("name", "Unknown file");
+        if (!binding.name.getText().toString().equals(name)) binding.name.setText(name);
+        binding.name.setOnClickListener(view -> showDownloadDetails(download));
+        String hash = download.optString("hash", "");
+        binding.selected.setOnCheckedChangeListener(null);
+        binding.selected.setContentDescription("Select " + name);
+        boolean isSelected = selectedDownloadHashes.contains(hash);
+        if (binding.selected.isChecked() != isSelected) binding.selected.setChecked(isSelected);
+        binding.selected.setOnCheckedChangeListener((button, checked) -> {
+            if (checked) selectedDownloadHashes.add(hash); else selectedDownloadHashes.remove(hash);
+            renderCurrentPage();
+        });
+        String details = tr(download.optString("status", "unknown")) + "  ·  "
+                + bytes(download.optLong("completed_bytes")) + tr(" of ") + bytes(download.optLong("size_bytes"))
+                + "  ·  " + speed(download.optLong("speed_bytes_per_second"));
+        if (!binding.details.getText().toString().equals(details)) binding.details.setText(details);
+        JSONObject progress = download.optJSONObject("progress");
+        int percent = progress == null ? 0 : (int) Math.round(progress.optDouble("percent"));
+        int boundedPercent = Math.max(0, Math.min(100, percent));
+        if (binding.progress.getProgress() != boundedPercent) binding.progress.setProgress(boundedPercent);
+        String status = download.optString("status", "");
+        boolean canResume = status.equals("paused") || status.equals("stopped");
+        String toggleLabel = tr(canResume ? "Resume" : "Pause");
+        if (!binding.toggle.getText().toString().equals(toggleLabel)) binding.toggle.setText(toggleLabel);
+        binding.toggle.setOnClickListener(view -> mutate("PATCH", "downloads/" + hash,
+                json("action", canResume ? "resume" : "pause"), "Download updated"));
+        binding.remove.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(tr("Cancel download?"))
+                .setMessage(name)
+                .setNegativeButton(tr("Keep"), null)
+                .setPositiveButton(tr("Cancel download"), (dialog, which) -> mutate("DELETE", "downloads/" + hash, null, "Download cancelled"))
+                .show());
+        binding.priority.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(tr("Download priority"))
+                .setItems(localizedOptions(new String[] {"Automatic", "Low", "Normal", "High"}), (dialog, choice) -> {
+                    String[] values = {"auto", "low", "normal", "high"};
+                    mutate("PATCH", "downloads/" + hash, json("priority", values[choice]), "Priority updated");
+                }).show());
+        binding.category.setOnClickListener(view -> chooseDownloadCategory(download));
+        binding.detail.setOnClickListener(view -> showDownloadDetails(download));
+    }
+
     private View downloadCard(JSONObject download) {
         LinearLayout row = card();
         LinearLayout titleRow = horizontal();
@@ -1412,6 +1560,8 @@ public final class MainActivity extends Activity {
         Button detail = button("Details", false);
         detail.setOnClickListener(view -> showDownloadDetails(download));
         row.addView(detail, marginParams(0, 4, 0, 0));
+        row.setTag(new DownloadCardBinding(name, selected, details, bar, toggle, remove, priority, category, detail));
+        bindDownloadCard(row, download);
         return row;
     }
 
@@ -1737,6 +1887,7 @@ public final class MainActivity extends Activity {
 
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
+        searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         searchInput.setHint(tr("Enter file name or keywords"));
         searchInput.setText(searchQuery);
         searchInput.setTextSize(16);
@@ -1765,8 +1916,18 @@ public final class MainActivity extends Activity {
         controls.addView(searchType, new LinearLayout.LayoutParams(0, dp(48), 1));
         Button go = button("Search", true);
         controls.addView(go, new LinearLayout.LayoutParams(0, dp(48), 1));
-        go.setOnClickListener(view -> startSearch(searchQuery,
-                searchKinds[Math.min(searchKinds.length - 1, Math.max(0, searchType.getSelectedItemPosition()))]));
+        go.setOnClickListener(view -> {
+            searchInput.clearFocus();
+            InputMethodManager keyboard = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(searchInput.getWindowToken(), 0);
+            startSearch(searchQuery,
+                    searchKinds[Math.min(searchKinds.length - 1, Math.max(0, searchType.getSelectedItemPosition()))]);
+        });
+        searchInput.setOnEditorActionListener((view, actionId, event) -> {
+            if (actionId != EditorInfo.IME_ACTION_SEARCH) return false;
+            go.performClick();
+            return true;
+        });
         form.addView(controls);
         TextView filterHeading = bodyText("Optional filters");
         filterHeading.setPadding(0, dp(10), 0, dp(2));
@@ -1805,6 +1966,7 @@ public final class MainActivity extends Activity {
                 Button select = button(tabLabel, id == activeSearchId);
                 select.setMaxWidth(dp(220));
                 select.setOnClickListener(view -> selectSearch(id));
+                searchTabButtons.put(id, select);
                 tab.addView(select);
                 Button close = button("×", false);
                 close.setContentDescription("Close search " + query);
@@ -1827,7 +1989,8 @@ public final class MainActivity extends Activity {
         }
 
         LinearLayout summary = card();
-        summary.addView(bodyText(activeSearchQuery + "  ·  " + searchState + "  ·  " + searchResults.length() + " results"));
+        searchSummary = bodyText(activeSearchQuery + "  ·  " + searchState + "  ·  " + searchResults.length() + " results");
+        summary.addView(searchSummary);
         LinearLayout actions = horizontal();
         Button update = button("Refresh", false);
         update.setOnClickListener(view -> refreshSearch());
@@ -1860,6 +2023,15 @@ public final class MainActivity extends Activity {
         pageContent.addView(summary, marginParams(0, 0, 0, 10));
 
         addSearchResultTools();
+        listRows = filteredSearchResults();
+        if (listRows.length() == 0) {
+            LinearLayout none = card();
+            none.addView(bodyText(searchResults.length() == 0 ? "No results yet. Search results can take a little while to arrive." : "No results match these filters."));
+            pageContent.addView(none);
+        }
+    }
+
+    private JSONArray filteredSearchResults() {
         ArrayList<JSONObject> visibleResults = new ArrayList<>();
         String needle = searchResultFilter.trim().toLowerCase(java.util.Locale.ROOT);
         for (int i = 0; i < searchResults.length(); i++) {
@@ -1890,36 +2062,45 @@ public final class MainActivity extends Activity {
         // Keep bulk actions scoped to rows that remain visible after filtering.
         if (searchResultsLoaded) selectedSearchHashes.retainAll(visibleHashes);
         saveActiveSearchUiState();
-
-        if (visibleResults.isEmpty()) {
-            LinearLayout none = card();
-            none.addView(bodyText(searchResults.length() == 0 ? "No results yet. Search results can take a little while to arrive." : "No results match these filters."));
-            pageContent.addView(none);
-        }
-        listRows = new JSONArray();
-        for (JSONObject result : visibleResults) listRows.put(result);
+        JSONArray rows = new JSONArray();
+        for (JSONObject result : visibleResults) rows.put(result);
+        return rows;
     }
 
-    private View searchResultCard(JSONObject result) {
-        LinearLayout row = card();
-        LinearLayout titleRow = horizontal();
-        TextView name = new TextView(this);
-        name.setText(result.optString("name", "Unknown file"));
-        name.setTextColor(INK);
-        name.setTextSize(16);
-        name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        titleRow.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+    private static final class SearchCardBinding {
+        final TextView name;
+        final CheckBox selected;
+        final TextView details;
+        final TextView media;
+        final Button add;
+        final Button comments;
+        boolean queued;
+
+        SearchCardBinding(TextView name, CheckBox selected, TextView details, TextView media,
+                Button add, Button comments) {
+            this.name = name;
+            this.selected = selected;
+            this.details = details;
+            this.media = media;
+            this.add = add;
+            this.comments = comments;
+        }
+    }
+
+    private void bindSearchResultCard(View card, JSONObject result) {
+        SearchCardBinding binding = (SearchCardBinding) card.getTag();
+        String name = result.optString("name", "Unknown file");
+        if (!binding.name.getText().toString().equals(name)) binding.name.setText(name);
         String hash = result.optString("hash", "");
-        CheckBox select = new CheckBox(this);
-        select.setContentDescription("Select " + result.optString("name", "file"));
-        select.setChecked(selectedSearchHashes.contains(hash));
-        select.setOnCheckedChangeListener((button, checked) -> {
+        binding.selected.setOnCheckedChangeListener(null);
+        binding.selected.setContentDescription("Select " + name);
+        boolean isSelected = selectedSearchHashes.contains(hash);
+        if (binding.selected.isChecked() != isSelected) binding.selected.setChecked(isSelected);
+        binding.selected.setOnCheckedChangeListener((button, checked) -> {
             if (checked) selectedSearchHashes.add(hash); else selectedSearchHashes.remove(hash);
             saveActiveSearchUiState();
             renderCurrentPage();
         });
-        titleRow.addView(select);
-        row.addView(titleRow);
         JSONObject sources = result.optJSONObject("sources");
         int sourceCount = sources == null ? result.optInt("source_count", 0) : sources.optInt("total", 0);
         ArrayList<String> details = new ArrayList<>();
@@ -1936,10 +2117,13 @@ public final class MainActivity extends Activity {
         if (!hiddenSearchFields.contains("status") && !resultStatus.isEmpty()) details.add(resultStatus);
         String directory = result.optString("directory", "");
         if (!hiddenSearchFields.contains("directory") && !directory.isEmpty()) details.add(directory);
-        if (!details.isEmpty()) row.addView(bodyText(String.join("  ·  ", details)));
+        String detailText = String.join("  ·  ", details);
+        if (!binding.details.getText().toString().equals(detailText)) binding.details.setText(detailText);
+        int detailVisibility = detailText.isEmpty() ? View.GONE : View.VISIBLE;
+        if (binding.details.getVisibility() != detailVisibility) binding.details.setVisibility(detailVisibility);
         JSONObject media = result.optJSONObject("media");
+        ArrayList<String> mediaDetails = new ArrayList<>();
         if (media != null) {
-            ArrayList<String> mediaDetails = new ArrayList<>();
             String artist = media.optString("artist", "");
             String album = media.optString("album", "");
             String title = media.optString("title", "");
@@ -1952,18 +2136,47 @@ public final class MainActivity extends Activity {
             if (!hiddenSearchFields.contains("bitrate") && bitrate > 0) mediaDetails.add(bitrate + " kb/s");
             String codec = media.optString("codec", "");
             if (!hiddenSearchFields.contains("codec") && !codec.isEmpty()) mediaDetails.add(codec);
-            if (!mediaDetails.isEmpty()) row.addView(bodyText(String.join("  ·  ", mediaDetails)));
         }
+        String mediaText = String.join("  ·  ", mediaDetails);
+        if (!binding.media.getText().toString().equals(mediaText)) binding.media.setText(mediaText);
+        int mediaVisibility = mediaText.isEmpty() ? View.GONE : View.VISIBLE;
+        if (binding.media.getVisibility() != mediaVisibility) binding.media.setVisibility(mediaVisibility);
         boolean alreadyQueued = result.optBoolean("already_downloaded");
-        Button add = button(alreadyQueued ? "Already in downloads" : "Add to downloads", !alreadyQueued);
-        add.setEnabled(!alreadyQueued);
-        add.setOnClickListener(view -> addSearchResult(result));
+        String addLabel = tr(alreadyQueued ? "Already in downloads" : "Add to downloads");
+        if (!binding.add.getText().toString().equals(addLabel)) binding.add.setText(addLabel);
+        if (binding.add.isEnabled() == alreadyQueued) binding.add.setEnabled(!alreadyQueued);
+        if (binding.queued != alreadyQueued) {
+            binding.add.setTextColor(alreadyQueued ? INK : (darkMode ? Color.rgb(20, 29, 41) : Color.WHITE));
+            binding.add.setBackgroundTintList(android.content.res.ColorStateList.valueOf(alreadyQueued ? SURFACE : BLUE));
+            binding.queued = alreadyQueued;
+        }
+        binding.add.setOnClickListener(view -> addSearchResult(result));
+        binding.comments.setOnClickListener(view -> showSearchComments(result));
+    }
+
+    private View searchResultCard(JSONObject result) {
+        LinearLayout row = card();
+        LinearLayout titleRow = horizontal();
+        TextView name = new TextView(this);
+        name.setTextColor(INK);
+        name.setTextSize(16);
+        name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        titleRow.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        CheckBox select = new CheckBox(this);
+        titleRow.addView(select);
+        row.addView(titleRow);
+        TextView details = bodyText("");
+        row.addView(details);
+        TextView media = bodyText("");
+        row.addView(media);
         LinearLayout resultActions = horizontal();
+        Button add = button("Add to downloads", true);
         resultActions.addView(add, new LinearLayout.LayoutParams(0, dp(44), 1));
         Button comments = button("Comments", false);
-        comments.setOnClickListener(view -> showSearchComments(result));
         resultActions.addView(comments, new LinearLayout.LayoutParams(0, dp(44), 1));
         row.addView(resultActions, marginParams(0, 8, 0, 0));
+        row.setTag(new SearchCardBinding(name, select, details, media, add, comments));
+        bindSearchResultCard(row, result);
         return row;
     }
 
@@ -2912,6 +3125,8 @@ public final class MainActivity extends Activity {
         while (keys.hasNext()) {
             String key = keys.next();
             if (!prefix.isEmpty() && !key.startsWith(prefix)) continue;
+            // This aMule core runs on Linux, where the sparse-file switch has no effect.
+            if (category.equals("files") && key.equals("create_sparse_files")) continue;
             Object value = values.opt(key);
             if (value == null || isCapabilityField(key)) continue;
             if (value instanceof JSONObject) {
