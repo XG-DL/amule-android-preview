@@ -6,7 +6,7 @@ The interface offers **English and Spanish** and is designed for a phone screen.
 
 | Item | Current status |
 |---|---|
-| Android app | Version 0.1.3, debug build |
+| Android app | Version 0.1.4, debug build |
 | Bundled native binaries | ARM64 (`arm64-v8a`) `amuled` and `amuleapi` |
 | Minimum Android version | Android 13 / API 33 |
 | Target Android version | Android 16 / API 36 |
@@ -53,9 +53,11 @@ The bundled aMule core includes local-router UPnP port mapping. It is off by def
 
 ## Build and install
 
-Download the [native interface preview APK](https://github.com/XG-DL/amule-android-preview/releases/tag/v0.1.3-native-preview), or build this branch from source. The [Web UI preview APK](https://github.com/XG-DL/amule-android-preview/releases/tag/v0.1.3-webview-preview) is built from `main`. Both use the same Android application ID, so installing one replaces the other. Building either APK packages the included ARM64 executables; it does not recompile the aMule core.
+For easy testing, download the **[latest native interface preview APK](https://github.com/XG-DL/amule-android-preview/releases/tag/v0.1.4-native-preview)** and open it on an ARM64 Android 13 or newer device. Android may ask you to allow installs from the app you used to open the APK. The [Web UI preview APK](https://github.com/XG-DL/amule-android-preview/releases/tag/v0.1.3-webview-preview) is built from `main`. Both use the same Android application ID, so installing one replaces the other. Building either APK packages the included ARM64 executables; it does not recompile the aMule core.
 
-You need JDK 17 or newer, Android SDK Platform 36, Android Build Tools and NDK `28.2.13676358`. Make the SDK available through `ANDROID_HOME` or `local.properties`, then run:
+The downloadable native APK is a debug build signed with the same certificate as the earlier native preview, so it can update that installation without removing its data. The release page includes the APK checksum and the source commit used to build it.
+
+To build this branch from source, install JDK 17 or newer, Android SDK Platform 36, Android Build Tools 36.0.0 and NDK `28.2.13676358`. Make the SDK available through `ANDROID_HOME` or `local.properties`, then run:
 
 ```sh
 ./gradlew assembleDebug
