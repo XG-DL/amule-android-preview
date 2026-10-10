@@ -79,6 +79,7 @@ public final class MainActivity extends Activity {
     private TextView startupMessage;
     private TextView pageTitle;
     private TextView footer;
+    private LinearLayout footerActions;
     private LinearLayout navigationBar;
     private LinearLayout pageContent;
     private NativeApiClient api;
@@ -308,7 +309,7 @@ public final class MainActivity extends Activity {
         }
         String error = prefs.getString(AmuleService.LAST_ERROR, "");
         if (!error.isEmpty()) {
-            startupMessage.setText(tr("aMule could not start") + "\n\n" + error);
+            showStartupApiError(error, false);
             return;
         }
         if (++attempts > 180) {
@@ -341,9 +342,104 @@ public final class MainActivity extends Activity {
         } catch (Exception error) {
             runOnUiThread(() -> {
                 opening = false;
-                startupMessage.setText(tr("Could not open the local aMule API") + "\n\n" + error.getMessage());
+                showStartupApiError(error.getMessage(), true);
             });
         }
+    }
+
+    private void showStartupApiError(String detail, boolean apiUnavailable) {
+        startupMessage.setText(tr(apiUnavailable
+                ? "aMule API is unavailable. Your downloads may still be running."
+                : "aMule could not start") + "\n\n" + detail);
+        ViewGroup frame = (ViewGroup) startupMessage.getParent();
+        if (frame.getChildCount() > 1) frame.getChildAt(0).setVisibility(View.GONE);
+        if (frame.findViewWithTag("api_recovery_actions") != null) return;
+        LinearLayout actions = new LinearLayout(this);
+        actions.setTag("api_recovery_actions");
+        actions.setGravity(Gravity.CENTER);
+        Button retry = button("Retry connection", false);
+        retry.setOnClickListener(view -> {
+            opening = false;
+            attempts = 0;
+            startupMessage.setText(tr("Reconnecting to the aMule API…"));
+            frame.removeView(actions);
+            if (!getSharedPreferences(AmuleService.PREFS, MODE_PRIVATE)
+                    .getBoolean(AmuleService.READY, false)) {
+                Intent service = new Intent(this, AmuleService.class).setAction(AmuleService.ACTION_RESTART_API);
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
+                else startService(service);
+            }
+            handler.post(this::checkReady);
+        });
+        Button restart = button("Restart API", true);
+        restart.setOnClickListener(view -> {
+            opening = false;
+            attempts = 0;
+            startupMessage.setText(tr("Restarting the aMule API…"));
+            frame.removeView(actions);
+            Intent service = new Intent(this, AmuleService.class).setAction(AmuleService.ACTION_RESTART_API);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
+            else startService(service);
+            handler.postDelayed(this::checkReady, 500);
+        });
+        actions.addView(retry);
+        actions.addView(restart);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
+        params.setMargins(dp(12), 0, dp(12), dp(40));
+        frame.addView(actions, params);
+    }
+
+    private void recoverApiConnection(boolean restart) {
+        lastApiError = tr("Reconnecting to the aMule API…");
+        updateFooter(lastApiError);
+        NativeApiClient previous = api;
+        eventStreamRunning.set(false);
+        if (previous != null) previous.closeEventStream();
+        if (restart) {
+            Intent service = new Intent(this, AmuleService.class).setAction(AmuleService.ACTION_RESTART_API);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
+            else startService(service);
+        }
+        new Thread(() -> {
+            Exception lastFailure = null;
+            for (int attempt = 0; attempt < 40 && !isFinishing(); attempt++) {
+                try {
+                    android.content.SharedPreferences prefs = getSharedPreferences(AmuleService.PREFS, MODE_PRIVATE);
+                    if (!prefs.getBoolean(AmuleService.READY, false)) {
+                        Thread.sleep(500);
+                        continue;
+                    }
+                    NativeApiClient client = new NativeApiClient();
+                    client.login(prefs.getString(AmuleService.ADMIN_PASSWORD, ""));
+                    JSONObject nextStatus = client.get("status");
+                    JSONArray nextDownloads = client.get("downloads?status=all&limit=1000000000")
+                            .optJSONArray("downloads");
+                    handler.post(() -> {
+                        api = client;
+                        status = nextStatus;
+                        if (nextDownloads != null) downloads = nextDownloads;
+                        lastApiError = null;
+                        eventStreamLive = false;
+                        if (selectedPage.equals("Search")) refreshSearch();
+                        else if (!selectedPage.equals("Downloads")) refreshSectionData();
+                        updateFooter(null);
+                        startNativeEventStream(client);
+                        nativeToast("aMule API connection restored", Toast.LENGTH_SHORT).show();
+                    });
+                    return;
+                } catch (Exception error) {
+                    lastFailure = error;
+                    try { Thread.sleep(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); break; }
+                }
+            }
+            Exception failure = lastFailure;
+            handler.post(() -> {
+                lastApiError = failure == null ? tr("The aMule API is still starting") : failure.getMessage();
+                updateFooter(lastApiError);
+                nativeToast("Could not reconnect to the aMule API", Toast.LENGTH_LONG).show();
+            });
+        }, "aMule-api-reconnect").start();
     }
 
     private void startNativeEventStream(NativeApiClient client) {
@@ -859,12 +955,26 @@ public final class MainActivity extends Activity {
 
         navigationBar = createNavigationBar();
         root.addView(navigationBar);
+        LinearLayout footerPanel = new LinearLayout(this);
+        footerPanel.setOrientation(LinearLayout.VERTICAL);
+        footerPanel.setBackgroundColor(FOOTER);
         footer = new TextView(this);
         footer.setTextSize(12);
         footer.setTextColor(INK);
-        footer.setPadding(dp(14), dp(10), dp(14), dp(10));
-        footer.setBackgroundColor(FOOTER);
-        root.addView(footer);
+        footer.setPadding(dp(14), dp(8), dp(14), dp(4));
+        footerPanel.addView(footer);
+        footerActions = new LinearLayout(this);
+        footerActions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        footerActions.setPadding(dp(8), 0, dp(8), dp(4));
+        Button retryApi = button("Retry connection", false);
+        retryApi.setOnClickListener(view -> recoverApiConnection(false));
+        Button restartApi = button("Restart API", true);
+        restartApi.setOnClickListener(view -> recoverApiConnection(true));
+        footerActions.addView(retryApi);
+        footerActions.addView(restartApi);
+        footerActions.setVisibility(View.GONE);
+        footerPanel.addView(footerActions);
+        root.addView(footerPanel);
 
         setContentView(root);
         applySystemBarInsets(root);
@@ -3684,7 +3794,9 @@ public final class MainActivity extends Activity {
         if (aboutVersionInfo == null) {
             versions.addView(bodyText(aboutVersionError == null
                     ? (aboutVersionLoading ? "Loading version information…" : "Version information has not loaded.")
-                    : "Could not load version information: " + aboutVersionError));
+                    : aboutVersionError.equals("Too many requests — please wait before retrying.")
+                            ? aboutVersionError
+                            : "Could not load version information: " + aboutVersionError));
             Button retry = button(aboutVersionError == null ? "Refresh version information" : "Retry", false);
             retry.setOnClickListener(view -> { aboutVersionError = null; loadAboutVersion(); });
             versions.addView(retry);
@@ -3796,11 +3908,16 @@ public final class MainActivity extends Activity {
                     nativeToast( "Update check complete", Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception error) {
+                boolean rateLimited = error.getMessage() != null && error.getMessage().contains("(HTTP 429)");
+                String message = rateLimited
+                        ? "Too many requests — please wait before retrying."
+                        : error.getMessage();
                 handler.post(() -> {
-                    aboutVersionError = error.getMessage();
+                    aboutVersionError = message;
                     aboutUpdateCheckRunning = false;
                     if (selectedPage.equals("About")) renderCurrentPage();
-                    nativeToast( "Could not check for updates: " + error.getMessage(), Toast.LENGTH_LONG).show();
+                    nativeToast(rateLimited ? message : "Could not check for updates: " + message,
+                            Toast.LENGTH_LONG).show();
                 });
             }
         }, "aMule-native-update-check").start();
@@ -3812,9 +3929,11 @@ public final class MainActivity extends Activity {
         JSONObject kad = status.optJSONObject("kad");
         String left = tr(ed2k == null ? "unknown" : ed2k.optString("state", "unknown"));
         String right = tr(kad == null ? "unknown" : kad.optString("state", "unknown"));
-        String live = error == null ? tr(eventStreamLive ? "live · events" : "live · polling") : tr("offline · ") + error;
+        String live = error == null ? tr(eventStreamLive ? "live · events" : "live · polling")
+                : tr("aMule API is unavailable. Your downloads may still be running.");
         footer.setText(live + "   |   ED2K: " + left + "   |   Kad: " + right);
         footer.setTextColor(error == null ? INK : 0xffa13a34);
+        if (footerActions != null) footerActions.setVisibility(error == null ? View.GONE : View.VISIBLE);
     }
 
     private void showComingSoon(String label) {

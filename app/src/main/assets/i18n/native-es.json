@@ -1,4 +1,13 @@
 {
+  "Too many requests — please wait before retrying.": "Demasiadas solicitudes; espera antes de volver a intentarlo.",
+  "aMule API is unavailable. Your downloads may still be running.": "La API de aMule no está disponible. Es posible que las descargas sigan activas.",
+  "Retry connection": "Reintentar conexión",
+  "Restart API": "Reiniciar API",
+  "Reconnecting to the aMule API…": "Reconectando con la API de aMule…",
+  "Restarting the aMule API…": "Reiniciando la API de aMule…",
+  "aMule API connection restored": "Conexión con la API de aMule restablecida",
+  "Could not reconnect to the aMule API": "No se pudo reconectar con la API de aMule",
+  "The aMule API is still starting": "La API de aMule todavía se está iniciando",
   "Starting aMule…": "Iniciando aMule…",
   "aMule could not start": "No se pudo iniciar aMule",
   "aMule is taking longer than expected to start. Check the persistent notification.": "aMule está tardando más de lo esperado en iniciarse. Consulta la notificación permanente.",

@@ -1,4 +1,13 @@
 {
+  "Too many requests — please wait before retrying.": "请求过于频繁，请稍后再试。",
+  "aMule API is unavailable. Your downloads may still be running.": "aMule API 暂时不可用。您的下载可能仍在继续。",
+  "Retry connection": "重新连接",
+  "Restart API": "重启 API",
+  "Reconnecting to the aMule API…": "正在重新连接 aMule API…",
+  "Restarting the aMule API…": "正在重启 aMule API…",
+  "aMule API connection restored": "已恢复与 aMule API 的连接",
+  "Could not reconnect to the aMule API": "无法重新连接 aMule API",
+  "The aMule API is still starting": "aMule API 仍在启动",
   "Networks": "网络",
   "Search": "搜索",
   "Downloads": "下载",

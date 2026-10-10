@@ -33,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 
 public final class AmuleService extends Service {
     public static final String ACTION_STOP = "uk.xgdl.amuleprobe.STOP";
+    public static final String ACTION_RESTART_API = "uk.xgdl.amuleprobe.RESTART_API";
     public static final String PREFS = "amule_runtime";
     public static final String READY = "ready";
     public static final String ADMIN_PASSWORD = "admin_password";
@@ -99,6 +100,15 @@ public final class AmuleService extends Service {
 
         watchDefaultNetwork();
         startHealthMonitor();
+
+        if (intent != null && ACTION_RESTART_API.equals(intent.getAction())) {
+            synchronized (this) {
+                if (daemon != null && daemon.isAlive()) {
+                    nextRecoveryAtMillis = 0;
+                    restartWebApiAfterFailure();
+                }
+            }
+        }
 
         synchronized (this) {
             if (!starting && (daemon == null || !daemon.isAlive())) {

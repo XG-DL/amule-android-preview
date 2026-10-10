@@ -1,4 +1,13 @@
 {
+  "Too many requests — please wait before retrying.": "बहुत अधिक अनुरोध हैं — कृपया फिर से प्रयास करने से पहले प्रतीक्षा करें।",
+  "aMule API is unavailable. Your downloads may still be running.": "aMule API उपलब्ध नहीं है। आपके डाउनलोड फिर भी जारी हो सकते हैं।",
+  "Retry connection": "कनेक्शन फिर से प्रयास करें",
+  "Restart API": "API पुनः आरंभ करें",
+  "Reconnecting to the aMule API…": "aMule API से फिर से कनेक्ट हो रहा है…",
+  "Restarting the aMule API…": "aMule API पुनः आरंभ हो रहा है…",
+  "aMule API connection restored": "aMule API कनेक्शन बहाल हुआ",
+  "Could not reconnect to the aMule API": "aMule API से फिर से कनेक्ट नहीं हो सका",
+  "The aMule API is still starting": "aMule API अभी शुरू हो रहा है",
   "Preferences": "प्राथमिकताएँ",
   "Contributors": "योगदानकर्ताओं",
   "Clients": "ग्राहकों",
