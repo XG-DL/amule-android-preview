@@ -56,39 +56,37 @@ public final class NativeUiSmokeTest {
     }
 
     @Test
-    public void navigatesAllNativeScreensInEnglishAndSpanish() {
-        String[][] screens = {
-                {"Networks", "Redes"},
-                {"Search", "Buscar"},
-                {"Downloads", "Descargas"},
-                {"Shared", "Compartidos"},
-                {"Clients", "Clientes"},
-                {"Messages", "Mensajes"},
-                {"Statistics", "Estadísticas"},
-                {"Preferences", "Preferencias"},
-                {"About", "Acerca de"}
+    public void navigatesAllNativeScreensAndChecksAllLanguages() {
+        String[][] languages = {
+                {"English", "Networks", "Search", "Downloads", "Shared", "Clients", "Messages", "Statistics", "Preferences", "About", "Appearance"},
+                {"Español", "Redes", "Buscar", "Descargas", "Compartidos", "Clientes", "Mensajes", "Estadísticas", "Preferencias", "Acerca de", "Apariencia"},
+                {"简体中文", "网络", "搜索", "下载", "共享", "客户端", "消息", "统计", "设置", "关于", "外观"},
+                {"हिंदी", "नेटवर्क", "खोज", "डाउनलोड", "साझा", "ग्राहकों", "संदेशों", "आंकड़े", "प्राथमिकताएँ", "के बारे में", "उपस्थिति"}
         };
 
-        for (String[] screen : screens) navigate(screen[0]);
+        for (int i = 1; i <= 9; i++) navigate(languages[0][i]);
         navigate("Preferences");
         choose(R.id.native_preferences_section, "Appearance");
-        choose(R.id.native_language, "Español");
-        assertTitle("Preferencias");
-        assertEquals("Español", target.getSharedPreferences("native_ui", Context.MODE_PRIVATE)
-                .getString("language", ""));
-
-        for (String[] screen : screens) navigate(screen[1]);
-        navigate("Preferencias");
-        choose(R.id.native_preferences_section, "Apariencia");
+        NativeStrings strings = new NativeStrings(target);
+        for (int i = 0; i < languages.length; i++) {
+            String[] language = languages[i];
+            if (i > 0) choose(R.id.native_language, language[0]);
+            assertTitle(language[8]);
+            assertEquals(language[0], target.getSharedPreferences("native_ui", Context.MODE_PRIVATE)
+                    .getString("language", ""));
+            for (int page = 1; page <= 9; page++) {
+                assertEquals("Navigation translation for " + language[0], language[page],
+                        strings.translate(languages[0][page], language[0]));
+            }
+        }
+        // The loop leaves the app in Hindi; restore English before @After restores the user's setting.
         choose(R.id.native_language, "English");
         assertTitle("Preferences");
     }
 
     private void navigate(String label) {
         findResource("native_menu").click();
-        UiObject2 menu = device.wait(Until.findObject(By.clazz("android.widget.ListView")), UI_TIMEOUT_MS);
-        assertNotNull("Navigation menu", menu);
-        UiObject2 item = menu.findObject(By.text(label));
+        UiObject2 item = device.wait(Until.findObject(By.text(label)), UI_TIMEOUT_MS);
         assertNotNull("Navigation item: " + label, item);
         item.click();
         assertTitle(label);

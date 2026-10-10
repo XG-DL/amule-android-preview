@@ -306,7 +306,8 @@
   "Bootstrap from node": "Iniciar desde un nodo",
   "Native app theme": "Tema de la aplicación",
   "Interface language": "Idioma de la interfaz",
-  "The native interface is available in English and Spanish. Names and statistics supplied by aMule remain in the core's language.": "La interfaz nativa está disponible en inglés y español. Los nombres y las estadísticas proporcionados por aMule mantienen el idioma del núcleo.",
+  "Select ": "Seleccionar ",
+  "Close search ": "Cerrar búsqueda ",
   "Statistics graph range": "Intervalo de las gráficas",
   "downloading": "descargando",
   "waiting": "en espera",
@@ -459,5 +460,11 @@
   "Indexed Load Percent": "Carga del índice (%)",
   "Buddy State": "Estado del contacto Kad",
   "Buddy Ip": "IP del contacto Kad",
-  "Buddy Port": "Puerto del contacto Kad"
+  "Buddy Port": "Puerto del contacto Kad",
+  "The native interface is available in English, Spanish, Simplified Chinese and Hindi. Names and statistics supplied by aMule remain in the core's language.": "La interfaz nativa está disponible en inglés, español, chino simplificado e hindi. Los nombres y estadísticas proporcionados por aMule mantienen el idioma del núcleo.",
+  "Comment and rating saved": "Comentario y valoración guardados",
+  "Log cleared": "Registro borrado",
+  "Category change failed: ": "No se pudo cambiar la categoría: ",
+  "Could not save comment: ": "No se pudo guardar el comentario: ",
+  "Could not load log: ": "No se pudo cargar el registro: "
 }

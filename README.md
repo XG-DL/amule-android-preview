@@ -2,7 +2,7 @@
 
 This branch is the first public preview of a native Android interface for the [aMule for Android project](https://github.com/XG-DL/amule-android-preview). It runs the same bundled `amuled` daemon and `amuleapi` service as the existing WebView app. The native screens use the local API to monitor and control aMule; the full Web UI remains available from the app menu.
 
-The interface offers **English and Spanish** and is designed for a phone screen.
+The interface offers **English, Spanish, Simplified Chinese and Hindi** and is designed for a phone screen. Core-provided names, logs and user-authored text remain in their original language.
 
 | Item | Current status |
 |---|---|
@@ -49,7 +49,7 @@ The Android foreground service starts `amuled` for eD2k/Kad and `amuleapi` for t
 
 aMule's configuration and incomplete files live in the app's private storage. Completed downloads are published to `Downloads/aMule/Complete/`, added to aMule's shared directories, and removed from the private Incoming directory after the published copy is verified. The underlying daemon and its Android-specific patches are shared with the WebView version of this project.
 
-The bundled aMule core includes local-router UPnP port mapping. It is off by default in aMule preferences and requires a compatible router. The core build currently leaves IPv6, IP geolocation, experimental uTP, QUIC and native gettext catalogs disabled; the native Android interface has its own English and Spanish strings.
+The bundled aMule core includes local-router UPnP port mapping. It is off by default in aMule preferences and requires a compatible router. The core build currently leaves IPv6, IP geolocation, experimental uTP, QUIC and native gettext catalogs disabled; the native Android interface has its own English, Spanish, Simplified Chinese and Hindi strings.
 
 ## Build and install
 
@@ -76,7 +76,7 @@ The included native binaries were built from [aMule commit `f1d4b19`](https://gi
 
 The native interface was built and manually exercised on an Android 16 / API 36 x86_64 emulator, where Android translated the bundled ARM64 binaries. The review covered live network status, an active test download, shared-file details, client views, graphs, representative preference edits, navigation and the English and Spanish interfaces. Temporary test files and edits were removed or restored. The [detailed review record](NATIVE-UI-EXPERIMENT.md#review-state) lists what was checked.
 
-CI also opens the packaged native app on that emulator, visits every main screen through its menu in English and Spanish, and changes the language through Preferences in both directions. This is a navigation and language smoke check; it does not submit network actions or change daemon preferences.
+CI opens the packaged native app on that emulator, visits every main screen through its menu in English, switches Preferences through all four languages, and checks the translated navigation labels and Preferences title. The hands-on emulator walkthrough covered English and Spanish; Chinese and Hindi are checked by CI. This is a navigation and language smoke check; it does not submit network actions or change daemon preferences.
 
 Development continues on remaining feature differences and physical ARM64 device testing. The Web UI remains available for workflows not yet represented in the native screens. The [existing Android core test record](TESTING.md) covers the earlier physical phone checks of the daemon, service, UPnP and WebView.
 

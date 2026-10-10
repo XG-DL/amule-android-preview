@@ -1462,7 +1462,7 @@ public final class MainActivity extends Activity {
         binding.name.setOnClickListener(view -> showDownloadDetails(download));
         String hash = download.optString("hash", "");
         binding.selected.setOnCheckedChangeListener(null);
-        binding.selected.setContentDescription("Select " + name);
+        binding.selected.setContentDescription(tr("Select ") + name);
         boolean isSelected = selectedDownloadHashes.contains(hash);
         if (binding.selected.isChecked() != isSelected) binding.selected.setChecked(isSelected);
         binding.selected.setOnCheckedChangeListener((button, checked) -> {
@@ -1508,7 +1508,7 @@ public final class MainActivity extends Activity {
         titleRow.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         name.setOnClickListener(view -> showDownloadDetails(download));
         CheckBox selected = new CheckBox(this);
-        selected.setContentDescription("Select " + download.optString("name", "download"));
+        selected.setContentDescription(tr("Select ") + download.optString("name", "download"));
         selected.setChecked(selectedDownloadHashes.contains(download.optString("hash")));
         selected.setOnCheckedChangeListener((button, checked) -> {
             String hash = download.optString("hash");
@@ -1969,7 +1969,7 @@ public final class MainActivity extends Activity {
                 searchTabButtons.put(id, select);
                 tab.addView(select);
                 Button close = button("×", false);
-                close.setContentDescription("Close search " + query);
+                close.setContentDescription(tr("Close search ") + query);
                 close.setOnClickListener(view -> closeSearch(id));
                 tab.addView(close);
                 tabs.addView(tab, marginParams(0, 0, dp(6), 0));
@@ -2093,7 +2093,7 @@ public final class MainActivity extends Activity {
         if (!binding.name.getText().toString().equals(name)) binding.name.setText(name);
         String hash = result.optString("hash", "");
         binding.selected.setOnCheckedChangeListener(null);
-        binding.selected.setContentDescription("Select " + name);
+        binding.selected.setContentDescription(tr("Select ") + name);
         boolean isSelected = selectedSearchHashes.contains(hash);
         if (binding.selected.isChecked() != isSelected) binding.selected.setChecked(isSelected);
         binding.selected.setOnCheckedChangeListener((button, checked) -> {
@@ -3041,17 +3041,17 @@ public final class MainActivity extends Activity {
         });
         group.addView(theme, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
         TextView languageLabel = bodyText("Interface language"); languageLabel.setTextColor(INK); languageLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD); group.addView(languageLabel);
-        Spinner language = translatedSpinner(new String[] {"English", "Español"}, nativeLanguage.equals("Español") ? 1 : 0);
+        Spinner language = translatedSpinner(new String[] {"English", "Español", "简体中文", "हिंदी"}, nativeLanguage.equals("Español") ? 1 : nativeLanguage.equals("简体中文") ? 2 : nativeLanguage.equals("हिंदी") ? 3 : 0);
         language.setId(R.id.native_language);
         language.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                String next = position == 0 ? "English" : "Español";
+                String next = position == 0 ? "English" : position == 1 ? "Español" : position == 2 ? "简体中文" : "हिंदी";
                 if (!nativeLanguage.equals(next)) { nativeLanguage = next; getSharedPreferences("native_ui", MODE_PRIVATE).edit().putString("language", next).apply(); recreate(); }
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
         });
         group.addView(language, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
-        group.addView(bodyText("The native interface is available in English and Spanish. Names and statistics supplied by aMule remain in the core's language."));
+        group.addView(bodyText("The native interface is available in English, Spanish, Simplified Chinese and Hindi. Names and statistics supplied by aMule remain in the core's language."));
         pageContent.addView(group, marginParams(0, 0, 0, 10));
 
         LinearLayout graphGroup = card();
