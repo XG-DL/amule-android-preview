@@ -33,6 +33,8 @@ import java.util.concurrent.TimeUnit;
 
 public final class AmuleService extends Service {
     public static final String ACTION_STOP = "uk.xgdl.amuleprobe.STOP";
+    public static final String ACTION_STOP_FOR_DATA_TRANSFER = "uk.xgdl.amuleprobe.STOP_FOR_DATA_TRANSFER";
+    public static final String DATA_TRANSFER_STOPPED = "data_transfer_stopped";
     public static final String ACTION_RESTART_API = "uk.xgdl.amuleprobe.RESTART_API";
     public static final String PREFS = "amule_runtime";
     public static final String READY = "ready";
@@ -88,6 +90,13 @@ public final class AmuleService extends Service {
             stopSelf(startId);
             return START_NOT_STICKY;
         }
+        if (intent != null && ACTION_STOP_FOR_DATA_TRANSFER.equals(intent.getAction())) {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(DATA_TRANSFER_STOPPED, false).apply();
+            stopCore();
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(DATA_TRANSFER_STOPPED, true).apply();
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
         stopRequested = false;
 
         Notification notification = buildNotification();
@@ -114,7 +123,8 @@ public final class AmuleService extends Service {
             if (!starting && (daemon == null || !daemon.isAlive())) {
                 starting = true;
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putBoolean(READY, false).putString(LAST_ERROR, "").apply();
+                        .putBoolean(READY, false).putBoolean(DATA_TRANSFER_STOPPED, false)
+                        .putString(LAST_ERROR, "").apply();
                 new Thread(this::startCore, "aMule-startup").start();
             }
         }

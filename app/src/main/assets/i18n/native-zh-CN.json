@@ -557,5 +557,18 @@
   "Log cleared": "日志已清除",
   "Category change failed: ": "无法更改分类：",
   "Could not save comment: ": "无法保存评论：",
-  "Could not load log: ": "无法加载日志："
+  "Could not load log: ": "无法加载日志：",
+  "Data transfer": "数据迁移",
+  "Move aMule settings and history": "迁移 aMule 设置和历史记录",
+  "Export creates a ZIP file you can copy to another phone. Import restores settings and history files from that archive. Completed and partial downloads stay on this phone.": "导出会创建一个 ZIP 文件，可复制到另一部手机。导入会从该压缩包恢复设置和历史记录。本机已完成和未完成的下载会保留在此手机上。",
+  "Export configuration": "导出配置",
+  "Import configuration": "导入配置",
+  "Import aMule configuration": "导入 aMule 配置",
+  "Settings and history files in this archive will replace matching files on this phone. Downloads and partial downloads will remain here. The aMule core will restart.": "压缩包中的设置和历史记录文件将替换本机对应文件。下载和未完成的下载会保留在本机。aMule 核心将重新启动。",
+  "Preparing aMule configuration export…": "正在准备导出 aMule 配置…",
+  "Preparing aMule configuration import…": "正在准备导入 aMule 配置…",
+  "Configuration exported.": "配置已导出。",
+  "Configuration imported. aMule is restarting.": "配置已导入，aMule 正在重新启动。",
+  "Configuration transfer failed: ": "配置迁移失败：",
+  "Recent searches": "最近搜索"
 }

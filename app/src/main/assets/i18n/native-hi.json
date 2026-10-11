@@ -557,5 +557,18 @@
   "Log cleared": "लॉग साफ़ किया गया",
   "Category change failed: ": "श्रेणी बदलना विफल रहा: ",
   "Could not save comment: ": "टिप्पणी सहेजी नहीं जा सकी: ",
-  "Could not load log: ": "लॉग लोड नहीं हो सका: "
+  "Could not load log: ": "लॉग लोड नहीं हो सका: ",
+  "Data transfer": "डेटा स्थानांतरण",
+  "Move aMule settings and history": "aMule सेटिंग और इतिहास स्थानांतरित करें",
+  "Export creates a ZIP file you can copy to another phone. Import restores settings and history files from that archive. Completed and partial downloads stay on this phone.": "निर्यात से ZIP फ़ाइल बनेगी, जिसे आप दूसरे फ़ोन पर कॉपी कर सकते हैं। आयात उस संग्रह से सेटिंग और इतिहास पुनर्स्थापित करेगा। पूरी और अधूरी डाउनलोड इसी फ़ोन पर रहेंगी।",
+  "Export configuration": "कॉन्फ़िगरेशन निर्यात करें",
+  "Import configuration": "कॉन्फ़िगरेशन आयात करें",
+  "Import aMule configuration": "aMule कॉन्फ़िगरेशन आयात करें",
+  "Settings and history files in this archive will replace matching files on this phone. Downloads and partial downloads will remain here. The aMule core will restart.": "इस संग्रह की सेटिंग और इतिहास फ़ाइलें इस फ़ोन की संबंधित फ़ाइलों को बदलेंगी। डाउनलोड और अधूरी डाउनलोड यहीं रहेंगी। aMule कोर फिर से शुरू होगा।",
+  "Preparing aMule configuration export…": "aMule कॉन्फ़िगरेशन निर्यात तैयार किया जा रहा है…",
+  "Preparing aMule configuration import…": "aMule कॉन्फ़िगरेशन आयात तैयार किया जा रहा है…",
+  "Configuration exported.": "कॉन्फ़िगरेशन निर्यात किया गया।",
+  "Configuration imported. aMule is restarting.": "कॉन्फ़िगरेशन आयात किया गया। aMule फिर से शुरू हो रहा है।",
+  "Configuration transfer failed: ": "कॉन्फ़िगरेशन स्थानांतरण विफल: ",
+  "Recent searches": "हाल की खोजें"
 }

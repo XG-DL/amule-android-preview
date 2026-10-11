@@ -3,6 +3,8 @@ package uk.xgdl.amuleprobe;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.res.Configuration;
+import android.net.Uri;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.graphics.Typeface;
@@ -30,6 +32,9 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
+import android.widget.GridLayout;
+import android.widget.PopupWindow;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -43,8 +48,15 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -59,6 +71,10 @@ import android.window.OnBackInvokedDispatcher;
 /** Native Android UI experiment. The production WebView remains on the main branch. */
 public final class MainActivity extends Activity {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 1;
+    private static final int EXPORT_CONFIG_REQUEST = 2;
+    private static final int IMPORT_CONFIG_REQUEST = 3;
+    private static final long MAX_CONFIG_ARCHIVE_BYTES = 512L * 1024L * 1024L;
+    private static final int MAX_RECENT_SEARCHES = 10;
     private int INK;
     private int MUTED;
     private int BLUE;
@@ -133,6 +149,7 @@ public final class MainActivity extends Activity {
     private boolean searchKadActive;
     private final Set<String> selectedSearchHashes = new HashSet<>();
     private String searchQuery = "";
+    private final ArrayList<String> recentSearches = new ArrayList<>();
     private String searchExtension = "";
     private String searchMinSources = "";
     private String searchMinSize = "";
@@ -225,12 +242,15 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         nativeTheme = getSharedPreferences("native_ui", MODE_PRIVATE).getString("theme", "system");
         nativeLanguage = getSharedPreferences("native_ui", MODE_PRIVATE).getString("language", "English");
+        selectedPage = getSharedPreferences("native_ui", MODE_PRIVATE)
+                .getString("last_page", selectedPage);
         boolean systemDark = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES;
         setTheme(nativeTheme.equals("dark") || (nativeTheme.equals("system") && systemDark)
                 ? R.style.PreviewThemeDark : R.style.PreviewTheme);
         super.onCreate(state);
         nativeStrings = new NativeStrings(this);
+        loadRecentSearches();
         if (state != null) restoreNativeUiState(state);
         applyNativePalette();
         if (Build.VERSION.SDK_INT >= 33) {
@@ -249,6 +269,14 @@ public final class MainActivity extends Activity {
         startCoreService();
     }
 
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // Keep this activity and its API connection alive across rotation. Rebuild the
+        // page for the new dimensions without showing the core startup screen again.
+        if (api != null) showNativeInterface();
+    }
+
     private void startCoreService() {
         Intent service = new Intent(this, AmuleService.class);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
@@ -260,6 +288,212 @@ public final class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == NOTIFICATION_PERMISSION_REQUEST) startCoreService();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        Uri uri = data.getData();
+        if (requestCode == EXPORT_CONFIG_REQUEST) runConfigTransfer(uri, true);
+        else if (requestCode == IMPORT_CONFIG_REQUEST) {
+            new AlertDialog.Builder(this)
+                    .setTitle(tr("Import aMule configuration"))
+                    .setMessage(tr("Settings and history files in this archive will replace matching files on this phone. Downloads and partial downloads will remain here. The aMule core will restart."))
+                    .setNegativeButton(tr("Cancel"), null)
+                    .setPositiveButton(tr("Import"), (dialog, which) -> runConfigTransfer(uri, false))
+                    .show();
+        }
+    }
+
+    private void createConfigArchive() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/zip");
+        intent.putExtra(Intent.EXTRA_TITLE, "amule-configuration.zip");
+        startActivityForResult(intent, EXPORT_CONFIG_REQUEST);
+    }
+
+    private void chooseConfigArchive() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/zip");
+        startActivityForResult(intent, IMPORT_CONFIG_REQUEST);
+    }
+
+    private void runConfigTransfer(Uri uri, boolean export) {
+        nativeToast(export ? "Preparing aMule configuration export…" : "Preparing aMule configuration import…", Toast.LENGTH_LONG).show();
+        new Thread(() -> {
+            Exception failure = null;
+            File stagedImport = null;
+            try {
+                stagedImport = export ? null : stageConfigArchive(uri);
+                stopCoreForDataTransfer();
+                if (export) writeConfigArchive(uri);
+                else installConfigArchive(stagedImport);
+            } catch (Exception error) {
+                failure = error;
+            } finally {
+                deleteTree(stagedImport);
+                final Exception transferFailure = failure;
+                if (!isFinishing()) runOnUiThread(() -> {
+                    api = null;
+                    opening = false;
+                    startCoreService();
+                    if (transferFailure == null) {
+                        nativeToast(export ? "Configuration exported." : "Configuration imported. aMule is restarting.", Toast.LENGTH_LONG).show();
+                    } else {
+                        nativeToast("Configuration transfer failed: " + transferFailure.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+        }, "aMule-config-transfer").start();
+    }
+
+    private void stopCoreForDataTransfer() throws IOException, InterruptedException {
+        eventStreamRunning.set(false);
+        NativeApiClient previous = api;
+        if (previous != null) previous.closeEventStream();
+        getSharedPreferences(AmuleService.PREFS, MODE_PRIVATE).edit()
+                .putBoolean(AmuleService.DATA_TRANSFER_STOPPED, false).commit();
+        startService(new Intent(this, AmuleService.class).setAction(AmuleService.ACTION_STOP_FOR_DATA_TRANSFER));
+        long deadline = System.currentTimeMillis() + 30_000;
+        while (System.currentTimeMillis() < deadline) {
+            if (getSharedPreferences(AmuleService.PREFS, MODE_PRIVATE)
+                    .getBoolean(AmuleService.DATA_TRANSFER_STOPPED, false)) return;
+            Thread.sleep(200);
+        }
+        throw new IOException("Timed out while stopping aMule");
+    }
+
+    private void writeConfigArchive(Uri uri) throws IOException {
+        File config = new File(getFilesDir(), "amule");
+        OutputStream raw = getContentResolver().openOutputStream(uri);
+        if (raw == null) throw new IOException("Could not open the selected export file");
+        try (ZipOutputStream zip = new ZipOutputStream(raw)) {
+            addConfigFilesToZip(zip, config, "");
+        }
+    }
+
+    private boolean isConfigTransferExcluded(String path) {
+        String name = path.substring(path.lastIndexOf('/') + 1).toLowerCase(java.util.Locale.ROOT);
+        return name.endsWith(".log") || name.equals("logfile") || name.startsWith("logfile.")
+                || name.equals("amuleapi.conf") || name.equals("amuleapi-passwords")
+                || name.equals("amuleapi-jwt-secret");
+    }
+
+    private void addConfigFilesToZip(ZipOutputStream zip, File directory, String relative) throws IOException {
+        File[] children = directory.listFiles();
+        if (children == null) throw new IOException("Could not read the aMule configuration folder");
+        for (File child : children) {
+            String name = child.getName();
+            if (relative.isEmpty() && (name.equals("Incoming") || name.equals("Temp"))) continue;
+            String childPath = relative.isEmpty() ? name : relative + "/" + name;
+            if (isConfigTransferExcluded(childPath)) continue;
+            if (child.isDirectory()) {
+                addConfigFilesToZip(zip, child, childPath);
+            } else if (child.isFile()) {
+                zip.putNextEntry(new ZipEntry("config/" + childPath));
+                try (InputStream input = new FileInputStream(child)) {
+                    byte[] buffer = new byte[32 * 1024];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) zip.write(buffer, 0, count);
+                }
+                zip.closeEntry();
+            }
+        }
+    }
+
+    private File stageConfigArchive(Uri uri) throws IOException {
+        File stage = new File(getCacheDir(), "amule-config-import-" + System.currentTimeMillis());
+        if (!stage.mkdirs()) throw new IOException("Could not prepare the import folder");
+        long total = 0;
+        int entries = 0;
+        boolean foundConfig = false;
+        InputStream raw = getContentResolver().openInputStream(uri);
+        if (raw == null) throw new IOException("Could not open the selected archive");
+        try (ZipInputStream zip = new ZipInputStream(raw)) {
+            ZipEntry entry;
+            byte[] buffer = new byte[32 * 1024];
+            while ((entry = zip.getNextEntry()) != null) {
+                String name = entry.getName();
+                if (name.startsWith("/") || name.contains("\\") || name.contains("../")
+                        || name.equals("..") || !name.startsWith("config/")) {
+                    throw new IOException("This is not a valid aMule configuration archive");
+                }
+                if (++entries > 10_000) throw new IOException("The archive contains too many files");
+                String relative = name.substring("config/".length());
+                if (relative.isEmpty()) { foundConfig = true; continue; }
+                if (relative.equals("Incoming") || relative.startsWith("Incoming/")
+                        || relative.equals("Temp") || relative.startsWith("Temp/")
+                        || isConfigTransferExcluded(relative)) continue;
+                File target = new File(stage, relative);
+                String canonicalStage = stage.getCanonicalPath() + File.separator;
+                if (!target.getCanonicalPath().startsWith(canonicalStage)) {
+                    throw new IOException("The archive contains an unsafe file path");
+                }
+                if (entry.isDirectory()) {
+                    if (!target.mkdirs() && !target.isDirectory()) throw new IOException("Could not prepare an imported folder");
+                    foundConfig = true;
+                    continue;
+                }
+                File parent = target.getParentFile();
+                if (parent != null && !parent.mkdirs() && !parent.isDirectory()) throw new IOException("Could not prepare an imported folder");
+                try (OutputStream output = new FileOutputStream(target)) {
+                    int count;
+                    while ((count = zip.read(buffer)) != -1) {
+                        total += count;
+                        if (total > MAX_CONFIG_ARCHIVE_BYTES) throw new IOException("The configuration archive is larger than 512 MB");
+                        output.write(buffer, 0, count);
+                    }
+                }
+                foundConfig = true;
+            }
+        } catch (Exception error) {
+            deleteTree(stage);
+            if (error instanceof IOException) throw (IOException) error;
+            throw new IOException("Could not read the configuration archive", error);
+        }
+        if (!foundConfig) {
+            deleteTree(stage);
+            throw new IOException("The archive does not contain aMule configuration files");
+        }
+        return stage;
+    }
+
+    private void installConfigArchive(File stage) throws IOException {
+        File config = new File(getFilesDir(), "amule");
+        if (!config.exists() && !config.mkdirs()) throw new IOException("Could not access the aMule configuration folder");
+        copyConfigFiles(stage, config);
+        deleteTree(stage);
+    }
+
+    private void copyConfigFiles(File from, File to) throws IOException {
+        File[] children = from.listFiles();
+        if (children == null) throw new IOException("Could not read staged configuration files");
+        for (File child : children) {
+            File target = new File(to, child.getName());
+            if (child.isDirectory()) {
+                if (!target.mkdirs() && !target.isDirectory()) throw new IOException("Could not create an imported folder");
+                copyConfigFiles(child, target);
+            } else {
+                File temporary = new File(target.getParentFile(), target.getName() + ".importing");
+                try (InputStream input = new FileInputStream(child); OutputStream output = new FileOutputStream(temporary)) {
+                    byte[] buffer = new byte[32 * 1024];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                }
+                if (target.exists() && !target.delete()) throw new IOException("Could not replace " + target.getName());
+                if (!temporary.renameTo(target)) throw new IOException("Could not install " + target.getName());
+            }
+        }
+    }
+
+    private void deleteTree(File file) {
+        if (file == null || !file.exists()) return;
+        File[] children = file.listFiles();
+        if (children != null) for (File child : children) deleteTree(child);
+        file.delete();
     }
 
     @Override
@@ -742,6 +976,7 @@ public final class MainActivity extends Activity {
                 JSONObject response = api.post("search", body);
                 int id = response.optInt("search_id");
                 handler.post(() -> {
+                    rememberSearch(clean);
                     saveActiveSearchUiState();
                     activeSearchId = id;
                     searchUiStates.remove(id);
@@ -757,6 +992,36 @@ public final class MainActivity extends Activity {
                 handler.post(() -> nativeToast( "Search failed: " + failure.getMessage(), Toast.LENGTH_LONG).show());
             }
         }, "aMule-native-search-start").start();
+    }
+
+    private void loadRecentSearches() {
+        recentSearches.clear();
+        String saved = getSharedPreferences("native_ui", MODE_PRIVATE).getString("recent_searches", "[]");
+        try {
+            JSONArray history = new JSONArray(saved);
+            for (int i = 0; i < history.length() && recentSearches.size() < MAX_RECENT_SEARCHES; i++) {
+                Object value = history.opt(i);
+                if (value instanceof String) addRecentSearch((String) value);
+            }
+        } catch (JSONException ignored) { }
+    }
+
+    private void rememberSearch(String query) {
+        addRecentSearch(query);
+        JSONArray history = new JSONArray();
+        for (String recent : recentSearches) history.put(recent);
+        getSharedPreferences("native_ui", MODE_PRIVATE).edit()
+                .putString("recent_searches", history.toString()).apply();
+    }
+
+    private void addRecentSearch(String query) {
+        String clean = query == null ? "" : query.trim();
+        if (clean.isEmpty()) return;
+        for (int i = recentSearches.size() - 1; i >= 0; i--) {
+            if (recentSearches.get(i).equalsIgnoreCase(clean)) recentSearches.remove(i);
+        }
+        recentSearches.add(0, clean);
+        while (recentSearches.size() > MAX_RECENT_SEARCHES) recentSearches.remove(recentSearches.size() - 1);
     }
 
     private void selectSearch(int id) {
@@ -810,7 +1075,7 @@ public final class MainActivity extends Activity {
                     searchResults = new JSONArray();
                     searchResultsLoaded = false;
                     searchKadActive = false;
-                    selectedPage = "Search";
+                    setSelectedPage("Search");
                     renderCurrentPage();
                     refreshSearch();
                 });
@@ -1038,13 +1303,25 @@ public final class MainActivity extends Activity {
     }
 
     private void selectPage(String page) {
-        selectedPage = page;
+        setSelectedPage(page);
         renderCurrentPage();
         if (page.equals("Networks") || page.equals("Downloads") || page.equals("Search")
                 || page.equals("Shared") || page.equals("Clients") || page.equals("Messages")
                 || page.equals("Statistics") || page.equals("Preferences")) refreshSnapshot();
         if (page.equals("Preferences")) refreshSectionData();
         if (page.equals("About")) loadAboutVersion();
+    }
+
+    private void setSelectedPage(String page) {
+        selectedPage = page;
+        getSharedPreferences("native_ui", MODE_PRIVATE).edit()
+                .putString("last_page", page).apply();
+    }
+
+    private boolean isValidNativePage(String page) {
+        return "Networks".equals(page) || "Search".equals(page) || "Downloads".equals(page)
+                || "Shared".equals(page) || "Clients".equals(page) || "Messages".equals(page)
+                || "Statistics".equals(page) || "Preferences".equals(page) || "About".equals(page);
     }
 
     private void renderCurrentPage() {
@@ -1995,18 +2272,101 @@ public final class MainActivity extends Activity {
         label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         form.addView(label);
 
-        searchInput = new EditText(this);
+        AutoCompleteTextView recentSearchInput = new AutoCompleteTextView(this);
+        searchInput = recentSearchInput;
         searchInput.setSingleLine(true);
         searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         searchInput.setHint(tr("Enter file name or keywords"));
         searchInput.setText(searchQuery);
         searchInput.setTextSize(16);
+        form.addView(searchInput, marginParams(0, 8, 0, 4));
+        if (!recentSearches.isEmpty()) {
+            PopupWindow recentPopup = new PopupWindow(this);
+            recentPopup.setWidth(ViewGroup.LayoutParams.MATCH_PARENT);
+            recentPopup.setHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
+            recentPopup.setFocusable(false);
+            recentPopup.setOutsideTouchable(true);
+            recentPopup.setBackgroundDrawable(new GradientDrawable());
+            GradientDrawable dropdownBackground = new GradientDrawable();
+            dropdownBackground.setColor(SURFACE);
+            dropdownBackground.setCornerRadius(dp(8));
+            dropdownBackground.setStroke(dp(1), BORDER);
+            recentPopup.setBackgroundDrawable(dropdownBackground);
+            boolean[] selectingRecentSearch = {false};
+            Runnable refreshRecentPopup = () -> {
+                String filter = recentSearchInput.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
+                ArrayList<String> matching = new ArrayList<>();
+                for (String query : recentSearches) {
+                    if (filter.isEmpty() || query.toLowerCase(java.util.Locale.ROOT).contains(filter)) {
+                        matching.add(query);
+                    }
+                }
+                if (matching.isEmpty()) {
+                    recentPopup.dismiss();
+                    return;
+                }
+                GridLayout grid = new GridLayout(this);
+                grid.setColumnCount(2);
+                grid.setPadding(dp(5), dp(5), dp(5), dp(5));
+                for (int i = 0; i < matching.size(); i++) {
+                    String query = matching.get(i);
+                    TextView option = bodyText(query);
+                    option.setSingleLine(true);
+                    option.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    option.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+                    option.setPadding(dp(10), 0, dp(8), 0);
+                    option.setMinHeight(dp(44));
+                    GradientDrawable optionBackground = new GradientDrawable();
+                    optionBackground.setColor(SURFACE);
+                    optionBackground.setCornerRadius(dp(6));
+                    option.setBackground(optionBackground);
+                    option.setOnClickListener(choice -> {
+                        searchQuery = query;
+                        selectingRecentSearch[0] = true;
+                        recentSearchInput.setText(query);
+                        recentSearchInput.setSelection(recentSearchInput.length());
+                        recentPopup.dismiss();
+                        selectingRecentSearch[0] = false;
+                    });
+                    GridLayout.LayoutParams cell = new GridLayout.LayoutParams(
+                            GridLayout.spec(i / 2), GridLayout.spec(i % 2, 1f));
+                    cell.width = 0;
+                    cell.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                    cell.setMargins(dp(2), dp(2), dp(2), dp(2));
+                    grid.addView(option, cell);
+                }
+                recentPopup.setContentView(grid);
+                if (recentPopup.isShowing()) {
+                    recentPopup.setWidth(recentSearchInput.getWidth());
+                    recentPopup.update(recentSearchInput, 0, 0, recentSearchInput.getWidth(),
+                            ViewGroup.LayoutParams.WRAP_CONTENT);
+                } else if (recentSearchInput.hasFocus()) {
+                    recentPopup.setWidth(recentSearchInput.getWidth());
+                    recentPopup.showAsDropDown(recentSearchInput);
+                }
+            };
+            recentSearchInput.setOnTouchListener((view, event) -> {
+                if (event.getAction() != android.view.MotionEvent.ACTION_UP) return false;
+                recentSearchInput.post(refreshRecentPopup);
+                return false;
+            });
+            recentSearchInput.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+                @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                    if (!selectingRecentSearch[0] && recentSearchInput.hasFocus()) {
+                        recentSearchInput.post(refreshRecentPopup);
+                    }
+                }
+                @Override public void afterTextChanged(Editable s) { }
+            });
+        }
         searchInput.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { searchQuery = s.toString(); }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                searchQuery = s.toString();
+            }
             @Override public void afterTextChanged(Editable s) { }
         });
-        form.addView(searchInput, marginParams(0, 8, 0, 4));
 
         LinearLayout controls = horizontal();
         String[] searchLabels = status.optBoolean("search_all_supported")
@@ -3119,14 +3479,26 @@ public final class MainActivity extends Activity {
             case "Advanced":
                 addPreferenceCategory("advanced", "Advanced");
                 addPreferenceCategory("files", "Memory mapping", "mmap_");
+                addConfigTransferPanel();
                 break;
             case "API credentials": addApiCredentialsPanel(); break;
         }
-        LinearLayout note = card();
-        note.addView(bodyText(preferencesTab.equals("Appearance")
-                ? "Appearance choices are saved on this Android device and do not change daemon preferences."
-                : "Tap a value to edit it. Changes are saved to the running aMule core immediately. API passwords have their own page."));
-        pageContent.addView(note, marginParams(0, 4, 0, 0));
+    }
+
+    private void addConfigTransferPanel() {
+        LinearLayout group = card();
+        TextView heading = bodyText("Move aMule settings and history");
+        heading.setTextColor(INK);
+        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        group.addView(heading);
+        group.addView(bodyText("Export creates a ZIP file you can copy to another phone. Import restores settings and history files from that archive. Completed and partial downloads stay on this phone."));
+        Button export = button("Export configuration", true);
+        export.setOnClickListener(view -> createConfigArchive());
+        group.addView(export, marginParams(0, 10, 0, 0));
+        Button importConfig = button("Import configuration", false);
+        importConfig.setOnClickListener(view -> chooseConfigArchive());
+        group.addView(importConfig, marginParams(0, 4, 0, 0));
+        pageContent.addView(group, marginParams(0, 0, 0, 10));
     }
 
     private void addNativeAppearancePanel() {
@@ -4133,7 +4505,8 @@ public final class MainActivity extends Activity {
     }
 
     private void restoreNativeUiState(Bundle state) {
-        selectedPage = state.getString("native_page", selectedPage);
+        String restoredPage = state.getString("native_page", selectedPage);
+        if (isValidNativePage(restoredPage)) selectedPage = restoredPage;
         preferencesTab = state.getString("native_preferences_tab", preferencesTab);
         searchQuery = state.getString("native_search_query", searchQuery);
         searchTypeChoice = state.getString("native_search_type", searchTypeChoice);

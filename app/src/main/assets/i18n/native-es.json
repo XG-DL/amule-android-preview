@@ -475,5 +475,18 @@
   "Log cleared": "Registro borrado",
   "Category change failed: ": "No se pudo cambiar la categoría: ",
   "Could not save comment: ": "No se pudo guardar el comentario: ",
-  "Could not load log: ": "No se pudo cargar el registro: "
+  "Could not load log: ": "No se pudo cargar el registro: ",
+  "Data transfer": "Transferencia de datos",
+  "Move aMule settings and history": "Transferir ajustes e historial de aMule",
+  "Export creates a ZIP file you can copy to another phone. Import restores settings and history files from that archive. Completed and partial downloads stay on this phone.": "La exportación crea un archivo ZIP que puedes copiar a otro teléfono. La importación restaura desde ese archivo los ajustes y el historial. Las descargas completadas y parciales permanecen en este teléfono.",
+  "Export configuration": "Exportar configuración",
+  "Import configuration": "Importar configuración",
+  "Import aMule configuration": "Importar configuración de aMule",
+  "Settings and history files in this archive will replace matching files on this phone. Downloads and partial downloads will remain here. The aMule core will restart.": "Los archivos de ajustes e historial de este archivo reemplazarán a los archivos correspondientes en este teléfono. Las descargas completadas y parciales permanecerán aquí. El núcleo de aMule se reiniciará.",
+  "Preparing aMule configuration export…": "Preparando la exportación de la configuración de aMule…",
+  "Preparing aMule configuration import…": "Preparando la importación de la configuración de aMule…",
+  "Configuration exported.": "Configuración exportada.",
+  "Configuration imported. aMule is restarting.": "Configuración importada. aMule se está reiniciando.",
+  "Configuration transfer failed: ": "Error al transferir la configuración: ",
+  "Recent searches": "Búsquedas recientes"
 }
