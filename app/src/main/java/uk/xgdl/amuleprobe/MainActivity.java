@@ -3,10 +3,16 @@ package uk.xgdl.amuleprobe;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.database.Cursor;
 import android.content.res.Configuration;
 import android.net.Uri;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.graphics.Color;
+import android.graphics.Canvas;
 import android.graphics.Insets;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
@@ -101,6 +107,8 @@ public final class MainActivity extends Activity {
     private NativeApiClient api;
     private JSONObject status = new JSONObject();
     private JSONArray downloads = new JSONArray();
+    private final Set<String> completedSearchHashes = new HashSet<>();
+    private final Set<String> pausedSearchHashes = new HashSet<>();
     private JSONArray downloadCategories = new JSONArray();
     private JSONArray searchResults = new JSONArray();
     private JSONArray openSearches = new JSONArray();
@@ -174,6 +182,10 @@ public final class MainActivity extends Activity {
     private TextView downloadQueueInfo;
     private TextView downloadTotals;
     private TextView searchSummary;
+    private Button addSelectedSearchButton;
+    private Button relatedSearchButton;
+    private LinearLayout searchBulkPanel;
+    private Button searchBulkDownloadButton;
     private final Map<Integer, Button> searchTabButtons = new HashMap<>();
     private String preferencesTab = "General";
     private String nativeTheme = "system";
@@ -881,6 +893,14 @@ public final class MainActivity extends Activity {
                 }
                 JSONObject response = api.get("search/" + selectedId + "/results");
                 JSONArray rows = response.optJSONArray("results");
+                JSONArray downloadRows = null;
+                try {
+                    downloadRows = api.get("downloads?status=all&limit=1000000000")
+                            .optJSONArray("downloads");
+                } catch (Exception ignored) {
+                    // Search results still load if the optional download-state lookup fails.
+                }
+                final JSONArray downloadStateRows = downloadRows;
                 JSONObject progress = response.optJSONObject("progress");
                 String query = response.optString("query", active == null ? "" : active.optString("query", ""));
                 String state = progress == null ? (active == null ? "" : active.optString("state", "")) : progress.optString("state", "");
@@ -889,6 +909,28 @@ public final class MainActivity extends Activity {
                 int chosenId = selectedId;
                 handler.post(() -> {
                     if (requestVersion != searchRequestVersion) return;
+                    boolean downloadStateChanged = false;
+                    if (downloadStateRows != null) {
+                        Set<String> nextCompletedHashes = new HashSet<>();
+                        Set<String> nextPausedHashes = new HashSet<>();
+                        for (int i = 0; i < downloadStateRows.length(); i++) {
+                            JSONObject download = downloadStateRows.optJSONObject(i);
+                            if (download != null) {
+                                String hash = download.optString("hash", "");
+                                if (!hash.isEmpty() && download.optString("status", "").equals("completed")) {
+                                    nextCompletedHashes.add(hash);
+                                } else if (!hash.isEmpty() && download.optString("status", "").equals("paused")) {
+                                    nextPausedHashes.add(hash);
+                                }
+                            }
+                        }
+                        downloadStateChanged = !completedSearchHashes.equals(nextCompletedHashes)
+                                || !pausedSearchHashes.equals(nextPausedHashes);
+                        completedSearchHashes.clear();
+                        completedSearchHashes.addAll(nextCompletedHashes);
+                        pausedSearchHashes.clear();
+                        pausedSearchHashes.addAll(nextPausedHashes);
+                    }
                     boolean tabsChanged = !openSearches.toString().equals(visibleSearches.toString());
                     boolean sameTabs = sameSearchTabs(openSearches, visibleSearches);
                     openSearches = visibleSearches;
@@ -901,7 +943,7 @@ public final class MainActivity extends Activity {
                         int previousResultCount = searchResults.length();
                         boolean changed = !searchResults.toString().equals((rows == null ? new JSONArray() : rows).toString())
                                 || !searchState.equals(state) || searchKadActive != kadActive
-                                || !activeSearchQuery.equals(query) || oldId != chosenId;
+                                || !activeSearchQuery.equals(query) || oldId != chosenId || downloadStateChanged;
                         boolean canUpdateRows = sameTabs && oldId == chosenId
                                 && searchState.equals(state) && searchKadActive == kadActive
                                 && activeSearchQuery.equals(query) && selectedPage.equals("Search")
@@ -912,7 +954,8 @@ public final class MainActivity extends Activity {
                         searchState = state;
                         searchKadActive = kadActive;
                         if ((changed || tabsChanged) && selectedPage.equals("Search")) {
-                            if (canUpdateRows && (previousResultCount == 0) == (searchResults.length() == 0))
+                            if (!downloadStateChanged && canUpdateRows
+                                    && (previousResultCount == 0) == (searchResults.length() == 0))
                                 updateSearchRows();
                             else renderLivePage();
                         }
@@ -1218,6 +1261,17 @@ public final class MainActivity extends Activity {
         root.addView(listView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
+        searchBulkPanel = new LinearLayout(this);
+        searchBulkPanel.setPadding(dp(12), dp(6), dp(12), dp(6));
+        searchBulkPanel.setBackgroundColor(FOOTER);
+        searchBulkDownloadButton = button("Download selected  ·  0", true);
+        searchBulkDownloadButton.setOnClickListener(view -> addSelectedSearchResults());
+        searchBulkPanel.addView(searchBulkDownloadButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        searchBulkPanel.setVisibility(View.GONE);
+        root.addView(searchBulkPanel, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         navigationBar = createNavigationBar();
         root.addView(navigationBar);
         LinearLayout footerPanel = new LinearLayout(this);
@@ -1345,6 +1399,8 @@ public final class MainActivity extends Activity {
         listRows = null;
         listFooter = null;
         searchSummary = null;
+        addSelectedSearchButton = null;
+        relatedSearchButton = null;
         searchTabButtons.clear();
         if (selectedPage.equals("Downloads")) renderDownloads();
         else if (selectedPage.equals("Networks")) renderNetworks();
@@ -1381,6 +1437,7 @@ public final class MainActivity extends Activity {
             listView.setVisibility(View.GONE);
             pageScroll.setVisibility(View.VISIBLE);
         }
+        updateSearchSelectionActions();
         updateFooter(lastApiError);
         if (!isFileListPage(selectedPage) && pageScroll != null) pageScroll.post(() -> {
             if (renderGeneration == generation && selectedPage.equals(renderedPage)) {
@@ -2039,7 +2096,23 @@ public final class MainActivity extends Activity {
         addDetailHeading(content, "Connected clients (" + peers.length() + ")");
         for (int i = 0; i < peers.length(); i++) {
             JSONObject peer = peers.optJSONObject(i);
-            if (peer != null) addDetailLine(content, peer.optString("name", "Unknown peer"), peer.optString("role", "") + (peer.optBoolean("a4af") ? " · A4AF" : ""));
+            if (peer != null) {
+                String peerName = displayValue(peer, "name", "");
+                if (peerName.isEmpty()) {
+                    peerName = displayValue(peer, "software", "");
+                    String version = displayValue(peer, "software_version", "");
+                    if (!peerName.isEmpty() && !version.isEmpty()) peerName += " " + version;
+                }
+                if (peerName.isEmpty()) peerName = displayValue(peer, "ip", "");
+                if (peerName.isEmpty()) peerName = tr("Peer") + " #" + peer.optInt("ecid");
+                String role = peer.optString("role", "");
+                String roleLabel = role.equals("downloading_from") ? tr("Downloading from")
+                        : role.equals("uploading_to") ? tr("Uploading to")
+                        : role.equals("both") ? tr("Both directions")
+                        : role.equals("none") ? tr("Alternate source") : tr("Connection status unavailable");
+                if (peer.optBoolean("a4af")) roleLabel += " · A4AF";
+                addDetailLine(content, peerName, roleLabel);
+            }
         }
         Button a4af = button(detail.optBoolean("a4af_auto") ? "Disable automatic source swapping" : "Enable automatic source swapping", false);
         a4af.setOnClickListener(view -> mutate("PATCH", "downloads/" + hash, json("a4af_auto", !detail.optBoolean("a4af_auto")), "A4AF preference updated"));
@@ -2116,16 +2189,30 @@ public final class MainActivity extends Activity {
                 if (categories == null) categories = new JSONArray();
                 JSONArray rows = categories;
                 handler.post(() -> {
-                    String[] names = new String[rows.length()]; int[] indexes = new int[rows.length()];
+                    String[] names = new String[Math.max(1, rows.length())];
+                    int[] indexes = new int[names.length];
+                    if (rows.length() == 0) names[0] = "Default";
+                    int selected = 0;
                     for (int i = 0; i < rows.length(); i++) {
                         JSONObject item = rows.optJSONObject(i);
                         names[i] = item == null ? "Default" : item.optString("name", "Default");
                         indexes[i] = item == null ? 0 : item.optInt("index");
+                        if (indexes[i] == download.optInt("category_index", 0)) selected = i;
                     }
-                    new AlertDialog.Builder(this).setTitle(tr("Move to category"))
-                            .setItems(names, (dialog, choice) -> mutate("PATCH", "downloads/" + download.optString("hash"),
-                                    json("category_index", indexes[choice]), "Category updated"))
-                            .setNegativeButton(tr("Cancel"), null).show();
+                    LinearLayout content = new LinearLayout(this);
+                    content.setOrientation(LinearLayout.VERTICAL);
+                    content.setPadding(dp(20), dp(4), dp(20), 0);
+                    Spinner categoryPicker = new Spinner(this);
+                    ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
+                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                    categoryPicker.setAdapter(adapter);
+                    categoryPicker.setSelection(selected);
+                    content.addView(categoryPicker);
+                    new AlertDialog.Builder(this).setTitle(tr("Move to category")).setView(content)
+                            .setNegativeButton(tr("Cancel"), null)
+                            .setPositiveButton(tr("Move"), (dialog, which) -> mutate("PATCH", "downloads/" + download.optString("hash"),
+                                    json("category_index", indexes[categoryPicker.getSelectedItemPosition()]), "Category updated"))
+                            .show();
                 });
             } catch (Exception failure) {
                 handler.post(() -> nativeToast( "Could not load categories: " + failure.getMessage(), Toast.LENGTH_LONG).show());
@@ -2539,6 +2626,8 @@ public final class MainActivity extends Activity {
 
     private static final class SearchCardBinding {
         final TextView name;
+        final TextView historyMarker;
+        final View progressMarker;
         final CheckBox selected;
         final TextView details;
         final TextView media;
@@ -2546,9 +2635,11 @@ public final class MainActivity extends Activity {
         final Button comments;
         boolean queued;
 
-        SearchCardBinding(TextView name, CheckBox selected, TextView details, TextView media,
+        SearchCardBinding(TextView name, TextView historyMarker, View progressMarker, CheckBox selected, TextView details, TextView media,
                 Button add, Button comments) {
             this.name = name;
+            this.historyMarker = historyMarker;
+            this.progressMarker = progressMarker;
             this.selected = selected;
             this.details = details;
             this.media = media;
@@ -2561,7 +2652,25 @@ public final class MainActivity extends Activity {
         SearchCardBinding binding = (SearchCardBinding) card.getTag();
         String name = result.optString("name", "Unknown file");
         if (!binding.name.getText().toString().equals(name)) binding.name.setText(name);
+        String resultStatus = result.optString("status", "").toLowerCase(java.util.Locale.ROOT);
         String hash = result.optString("hash", "");
+        boolean currentlyCompleted = completedSearchHashes.contains(hash);
+        boolean previouslyDownloaded = resultStatus.equals("downloaded");
+        boolean previouslyCanceled = resultStatus.equals("canceled");
+        boolean alreadyQueued = resultStatus.equals("queued") || resultStatus.equals("queued_canceled");
+        boolean isPaused = pausedSearchHashes.contains(hash);
+        String historyLabel = currentlyCompleted ? tr("Downloaded") : previouslyDownloaded ? tr("Previously downloaded")
+                : isPaused ? tr("Paused")
+                : previouslyCanceled ? tr("Previously canceled") : "";
+        binding.historyMarker.setText(currentlyCompleted || previouslyDownloaded ? "✓" : isPaused ? "Ⅱ" : previouslyCanceled ? "×" : "");
+        binding.historyMarker.setTextColor(currentlyCompleted || previouslyDownloaded ? Color.rgb(0, 137, 123)
+                : isPaused ? Color.rgb(230, 145, 35) : Color.rgb(190, 55, 110));
+        binding.historyMarker.setVisibility(historyLabel.isEmpty() ? View.GONE : View.VISIBLE);
+        binding.historyMarker.setContentDescription(historyLabel);
+        binding.historyMarker.setOnClickListener(historyLabel.isEmpty() ? null
+                : view -> Toast.makeText(this, historyLabel, Toast.LENGTH_SHORT).show());
+        binding.progressMarker.setVisibility(alreadyQueued && !isPaused && !currentlyCompleted && !previouslyDownloaded ? View.VISIBLE : View.GONE);
+        binding.progressMarker.setContentDescription(tr("In progress"));
         binding.selected.setOnCheckedChangeListener(null);
         binding.selected.setContentDescription(tr("Select ") + name);
         boolean isSelected = selectedSearchHashes.contains(hash);
@@ -2569,7 +2678,7 @@ public final class MainActivity extends Activity {
         binding.selected.setOnCheckedChangeListener((button, checked) -> {
             if (checked) selectedSearchHashes.add(hash); else selectedSearchHashes.remove(hash);
             saveActiveSearchUiState();
-            renderCurrentPage();
+            updateSearchSelectionActions();
         });
         JSONObject sources = result.optJSONObject("sources");
         int sourceCount = sources == null ? result.optInt("source_count", 0) : sources.optInt("total", 0);
@@ -2583,8 +2692,6 @@ public final class MainActivity extends Activity {
         if (!hiddenSearchFields.contains("rating")) details.add(rating > 0 ? rating + "/5 rating" : "Unrated");
         String fileType = result.optString("file_type", "");
         if (!hiddenSearchFields.contains("type") && !fileType.isEmpty()) details.add(prettyPreferenceKey(fileType));
-        String resultStatus = result.optString("status", "");
-        if (!hiddenSearchFields.contains("status") && !resultStatus.isEmpty()) details.add(resultStatus);
         String directory = result.optString("directory", "");
         if (!hiddenSearchFields.contains("directory") && !directory.isEmpty()) details.add(directory);
         String detailText = String.join("  ·  ", details);
@@ -2611,14 +2718,17 @@ public final class MainActivity extends Activity {
         if (!binding.media.getText().toString().equals(mediaText)) binding.media.setText(mediaText);
         int mediaVisibility = mediaText.isEmpty() ? View.GONE : View.VISIBLE;
         if (binding.media.getVisibility() != mediaVisibility) binding.media.setVisibility(mediaVisibility);
-        boolean alreadyQueued = result.optBoolean("already_downloaded");
-        String addLabel = tr(alreadyQueued ? "Already in downloads" : "Add to downloads");
+        boolean unavailable = alreadyQueued || currentlyCompleted;
+        String addLabel = tr(currentlyCompleted ? "Downloaded"
+                : previouslyDownloaded ? "Previously downloaded"
+                : isPaused ? "Paused"
+                : alreadyQueued ? "In progress" : "Add to downloads");
         if (!binding.add.getText().toString().equals(addLabel)) binding.add.setText(addLabel);
-        if (binding.add.isEnabled() == alreadyQueued) binding.add.setEnabled(!alreadyQueued);
-        if (binding.queued != alreadyQueued) {
-            binding.add.setTextColor(alreadyQueued ? INK : (darkMode ? Color.rgb(20, 29, 41) : Color.WHITE));
-            binding.add.setBackgroundTintList(android.content.res.ColorStateList.valueOf(alreadyQueued ? SURFACE : BLUE));
-            binding.queued = alreadyQueued;
+        if (binding.add.isEnabled() == unavailable) binding.add.setEnabled(!unavailable);
+        if (binding.queued != unavailable) {
+            binding.add.setTextColor(unavailable ? INK : (darkMode ? Color.rgb(20, 29, 41) : Color.WHITE));
+            binding.add.setBackgroundTintList(android.content.res.ColorStateList.valueOf(unavailable ? SURFACE : BLUE));
+            binding.queued = unavailable;
         }
         binding.add.setOnClickListener(view -> addSearchResult(result));
         binding.comments.setOnClickListener(view -> showSearchComments(result));
@@ -2632,6 +2742,36 @@ public final class MainActivity extends Activity {
         name.setTextSize(16);
         name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         titleRow.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView historyMarker = new TextView(this);
+        historyMarker.setTextSize(18);
+        historyMarker.setGravity(Gravity.CENTER);
+        historyMarker.setPadding(dp(8), 0, dp(8), 0);
+        titleRow.addView(historyMarker, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)));
+        View progressMarker = new View(this) {
+            private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            @Override protected void onDraw(Canvas canvas) {
+                super.onDraw(canvas);
+                float w = getWidth(), h = getHeight(), mid = h / 2f;
+                Path pulse = new Path();
+                pulse.moveTo(w * 0.08f, mid);
+                pulse.lineTo(w * 0.30f, mid);
+                pulse.lineTo(w * 0.42f, h * 0.20f);
+                pulse.lineTo(w * 0.53f, h * 0.82f);
+                pulse.lineTo(w * 0.65f, h * 0.36f);
+                pulse.lineTo(w * 0.74f, mid);
+                pulse.lineTo(w * 0.92f, mid);
+                paint.setColor(Color.rgb(230, 145, 35));
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(dp(2));
+                paint.setStrokeCap(Paint.Cap.ROUND);
+                paint.setStrokeJoin(Paint.Join.ROUND);
+                canvas.drawPath(pulse, paint);
+            }
+        };
+        progressMarker.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        LinearLayout.LayoutParams progressMarkerParams = new LinearLayout.LayoutParams(dp(18), dp(24));
+        progressMarkerParams.gravity = Gravity.CENTER_VERTICAL;
+        titleRow.addView(progressMarker, progressMarkerParams);
         CheckBox select = new CheckBox(this);
         titleRow.addView(select);
         row.addView(titleRow);
@@ -2645,7 +2785,7 @@ public final class MainActivity extends Activity {
         Button comments = button("Comments", false);
         resultActions.addView(comments, new LinearLayout.LayoutParams(0, dp(44), 1));
         row.addView(resultActions, marginParams(0, 8, 0, 0));
-        row.setTag(new SearchCardBinding(name, select, details, media, add, comments));
+        row.setTag(new SearchCardBinding(name, historyMarker, progressMarker, select, details, media, add, comments));
         bindSearchResultCard(row, result);
         return row;
     }
@@ -2691,14 +2831,31 @@ public final class MainActivity extends Activity {
         fields.setOnClickListener(view -> showSearchResultFields());
         tools.addView(fields, marginParams(0, 4, 0, 0));
         Button addSelected = button("Add selected to downloads  ·  " + selectedSearchHashes.size(), false);
-        addSelected.setEnabled(!selectedSearchHashes.isEmpty());
+        addSelectedSearchButton = addSelected;
         addSelected.setOnClickListener(view -> addSelectedSearchResults());
         tools.addView(addSelected, marginParams(0, 4, 0, 0));
         Button related = button("Search for related files  ·  " + selectedSearchHashes.size(), false);
-        related.setEnabled(!selectedSearchHashes.isEmpty());
+        relatedSearchButton = related;
         related.setOnClickListener(view -> startRelatedSearch());
         tools.addView(related, marginParams(0, 4, 0, 0));
+        updateSearchSelectionActions();
         pageContent.addView(tools, marginParams(0, 0, 0, 10));
+    }
+
+    private void updateSearchSelectionActions() {
+        int count = selectedSearchHashes.size();
+        if (addSelectedSearchButton != null) {
+            addSelectedSearchButton.setText(tr("Add selected to downloads  ·  " + count));
+            addSelectedSearchButton.setEnabled(count > 0);
+        }
+        if (relatedSearchButton != null) {
+            relatedSearchButton.setText(tr("Search for related files  ·  " + count));
+            relatedSearchButton.setEnabled(count > 0);
+        }
+        if (searchBulkDownloadButton != null) {
+            searchBulkDownloadButton.setText(tr("Download selected  ·  " + count));
+            searchBulkPanel.setVisibility(selectedPage.equals("Search") && count > 0 ? View.VISIBLE : View.GONE);
+        }
     }
 
     private void showSearchResultFields() {
@@ -2767,20 +2924,55 @@ public final class MainActivity extends Activity {
                 if (categories == null) categories = new JSONArray();
                 JSONArray rows = categories;
                 handler.post(() -> {
-                    String[] labels = new String[Math.max(1, rows.length())];
-                    int[] indexes = new int[labels.length];
-                    if (rows.length() == 0) labels[0] = "Default";
+                    ArrayList<String> labels = new ArrayList<>();
+                    ArrayList<Integer> indexes = new ArrayList<>();
+                    boolean hasDefault = false;
                     for (int i = 0; i < rows.length(); i++) {
                         JSONObject item = rows.optJSONObject(i);
-                        labels[i] = item == null ? "Default" : item.optString("name", "Default");
-                        indexes[i] = item == null ? 0 : item.optInt("index");
+                        String label = item == null ? "Default" : item.optString("name", "Default");
+                        int index = item == null ? 0 : item.optInt("index");
+                        if (label.equalsIgnoreCase("Default")) hasDefault = true;
+                        labels.add(label);
+                        indexes.add(index);
                     }
-                    new AlertDialog.Builder(this).setTitle(tr("Add " + hashes.size() + " selected files"))
-                            .setItems(labels, (dialog, choice) -> new Thread(() -> {
+                    if (!hasDefault) {
+                        labels.add(0, "Default");
+                        indexes.add(0, 0);
+                    }
+
+                    LinearLayout form = new LinearLayout(this);
+                    form.setOrientation(LinearLayout.VERTICAL);
+                    form.setPadding(dp(22), dp(4), dp(22), dp(4));
+                    TextView selectedCount = bodyText(tr("Selected files") + ": " + hashes.size());
+                    selectedCount.setTextColor(MUTED);
+                    form.addView(selectedCount, marginParams(0, 0, 0, 12));
+                    TextView categoryLabel = bodyText("Category");
+                    categoryLabel.setTextColor(INK);
+                    categoryLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+                    form.addView(categoryLabel, marginParams(0, 0, 0, 2));
+                    Spinner categoryPicker = spinner(labels.toArray(new String[0]), "Default");
+                    form.addView(categoryPicker, marginParams(0, 0, 0, 4));
+
+                    AlertDialog dialog = new AlertDialog.Builder(this)
+                            .setTitle(tr("Add to downloads"))
+                            .setView(form)
+                            .setNegativeButton(tr("Cancel"), null)
+                            .setPositiveButton(tr("Add"), null)
+                            .create();
+                    dialog.setOnShowListener(ignored -> {
+                        Button cancel = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+                        Button add = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+                        if (cancel != null) cancel.setTextColor(MUTED);
+                        if (add != null) {
+                            add.setTextColor(BLUE);
+                            add.setOnClickListener(view -> {
+                                int choice = Math.max(0, Math.min(categoryPicker.getSelectedItemPosition(), indexes.size() - 1));
+                                dialog.dismiss();
+                                new Thread(() -> {
                                 int added = 0;
                                 try {
                                     for (String hash : hashes) {
-                                        api.post("search/results/" + hash + "/download", json("category_index", indexes[choice]));
+                                        api.post("search/results/" + hash + "/download", json("category_index", indexes.get(choice)));
                                         added++;
                                     }
                                     int count = added;
@@ -2795,7 +2987,11 @@ public final class MainActivity extends Activity {
                                     int count = added;
                                     handler.post(() -> nativeToast( count + " added; remaining files failed: " + failure.getMessage(), Toast.LENGTH_LONG).show());
                                 }
-                            }, "aMule-native-search-bulk-add").start()).setNegativeButton(tr("Cancel"), null).show();
+                                }, "aMule-native-search-bulk-add").start();
+                            });
+                        }
+                    });
+                    dialog.show();
                 });
             } catch (Exception failure) {
                 handler.post(() -> nativeToast( "Could not load download categories: " + failure.getMessage(), Toast.LENGTH_LONG).show());
@@ -3012,11 +3208,61 @@ public final class MainActivity extends Activity {
                 if (c != null) text.append("\n• ").append(displayValue(c, "name", "Unknown client"))
                         .append("  ").append(displayValue(c, "ip", "Address unavailable"));
             }
-            handler.post(() -> new AlertDialog.Builder(this).setTitle(displayValue(detail, "name", "Shared file")).setMessage(text.toString())
+            handler.post(() -> {
+                AlertDialog.Builder dialog = new AlertDialog.Builder(this)
+                    .setTitle(displayValue(detail, "name", "Shared file")).setMessage(text.toString())
                     .setNeutralButton(tr("Edit comment/rating"), (d, w) -> showSharedCommentDialog(detail))
-                    .setPositiveButton(tr("Close"), null).show());
+                    .setPositiveButton(tr("Close"), null);
+                if (isAppCompletedDownload(detail)) {
+                    dialog.setNegativeButton(tr("Delete file"), (d, w) -> confirmDeleteCompletedSharedFile(detail));
+                }
+                dialog.show();
+            });
         } catch (Exception e) { handler.post(() -> nativeToast( "Could not load shared-file details: " + e.getMessage(), Toast.LENGTH_LONG).show()); }
         }, "aMule-native-shared-details").start();
+    }
+
+    private boolean isAppCompletedDownload(JSONObject file) {
+        String directory = file.optString("directory", "").replace('\\', '/');
+        return directory.endsWith("/aMule/Complete") || directory.endsWith("/aMule/Complete/");
+    }
+
+    private void confirmDeleteCompletedSharedFile(JSONObject file) {
+        String name = file.optString("name", "");
+        new AlertDialog.Builder(this).setTitle(tr("Delete completed file?"))
+                .setMessage(tr("This permanently deletes the file from Downloads/aMule/Complete and removes it from Shared. This cannot be undone.") + "\n\n" + name)
+                .setNegativeButton(tr("Cancel"), null)
+                .setPositiveButton(tr("Delete"), (dialog, which) -> deleteCompletedSharedFile(name))
+                .show();
+    }
+
+    private void deleteCompletedSharedFile(String name) {
+        new Thread(() -> {
+            try {
+                Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+                String relativePath = Environment.DIRECTORY_DOWNLOADS + "/aMule/Complete/";
+                String selection = MediaStore.Downloads.DISPLAY_NAME + "=? AND "
+                        + MediaStore.Downloads.RELATIVE_PATH + "=?";
+                String[] args = {name, relativePath};
+                Uri target = null;
+                try (Cursor cursor = getContentResolver().query(collection,
+                        new String[] {MediaStore.Downloads._ID}, selection, args, null)) {
+                    if (cursor == null) throw new IllegalStateException("Android could not find the completed file");
+                    if (!cursor.moveToFirst()) throw new IllegalStateException("Completed file was not found in Downloads");
+                    target = Uri.withAppendedPath(collection, Long.toString(cursor.getLong(0)));
+                    if (cursor.moveToNext()) throw new IllegalStateException("More than one matching file was found; nothing was deleted");
+                }
+                if (getContentResolver().delete(target, null, null) != 1) {
+                    throw new IllegalStateException("Android did not delete the completed file");
+                }
+                handler.post(() -> {
+                    nativeToast("Completed file deleted", Toast.LENGTH_SHORT).show();
+                    mutate("POST", "shared_reload", new JSONObject(), "Shared file scan started");
+                });
+            } catch (Exception error) {
+                handler.post(() -> nativeToast("Could not delete completed file: " + error.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }, "aMule-delete-completed-file").start();
     }
 
     private void showSharedCommentDialog(JSONObject file) {
