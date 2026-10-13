@@ -111,6 +111,11 @@ public final class MainActivity extends Activity {
     private final Set<String> pausedSearchHashes = new HashSet<>();
     private JSONArray downloadCategories = new JSONArray();
     private JSONArray searchResults = new JSONArray();
+    private final Map<Integer, Integer> searchResultLimits = new java.util.concurrent.ConcurrentHashMap<>();
+    private int searchResultsTotal;
+    private boolean searchLoadingMore;
+    private TextView searchLoadMoreInfo;
+    private Button searchLoadMoreButton;
     private JSONArray openSearches = new JSONArray();
     private JSONArray sharedFiles = new JSONArray();
     private JSONArray clients = new JSONArray();
@@ -886,13 +891,17 @@ public final class MainActivity extends Activity {
                         searchState = "";
                         searchKadActive = false;
                         searchResults = new JSONArray();
+                        searchResultsTotal = 0;
                         searchResultsLoaded = true;
                         if (changed && selectedPage.equals("Search")) renderLivePage();
                     });
                     return;
                 }
-                JSONObject response = api.get("search/" + selectedId + "/results");
+                int resultLimit = searchResultLimits.getOrDefault(selectedId, 100);
+                JSONObject response = api.get("search/" + selectedId + "/results?limit=" + resultLimit);
                 JSONArray rows = response.optJSONArray("results");
+                int totalResults = response.optInt("total", rows == null ? 0 : rows.length());
+                boolean requestedLimitReached = rows != null && rows.length() >= Math.min(resultLimit, totalResults);
                 JSONArray downloadRows = null;
                 try {
                     downloadRows = api.get("downloads?status=all&limit=1000000000")
@@ -909,6 +918,8 @@ public final class MainActivity extends Activity {
                 int chosenId = selectedId;
                 handler.post(() -> {
                     if (requestVersion != searchRequestVersion) return;
+                    if (requestedLimitReached && resultLimit >= searchResultLimits.getOrDefault(chosenId, 100))
+                        searchLoadingMore = false;
                     boolean downloadStateChanged = false;
                     if (downloadStateRows != null) {
                         Set<String> nextCompletedHashes = new HashSet<>();
@@ -941,20 +952,26 @@ public final class MainActivity extends Activity {
                         }
                         activeSearchId = chosenId;
                         int previousResultCount = searchResults.length();
+                        int previousResultTotal = searchResultsTotal;
                         boolean changed = !searchResults.toString().equals((rows == null ? new JSONArray() : rows).toString())
                                 || !searchState.equals(state) || searchKadActive != kadActive
-                                || !activeSearchQuery.equals(query) || oldId != chosenId || downloadStateChanged;
+                                || !activeSearchQuery.equals(query) || oldId != chosenId || downloadStateChanged
+                                || previousResultTotal != totalResults;
                         boolean canUpdateRows = sameTabs && oldId == chosenId
                                 && searchState.equals(state) && searchKadActive == kadActive
                                 && activeSearchQuery.equals(query) && selectedPage.equals("Search")
                                 && listAdapter != null && listAdapter.page.equals("Search");
                         searchResults = rows == null ? new JSONArray() : rows;
+                        searchResultsTotal = Math.max(searchResults.length(), totalResults);
                         searchResultsLoaded = true;
                         activeSearchQuery = query;
                         searchState = state;
                         searchKadActive = kadActive;
                         if ((changed || tabsChanged) && selectedPage.equals("Search")) {
+                            boolean hadMoreBefore = previousResultCount < previousResultTotal;
+                            boolean hasMoreNow = searchResults.length() < searchResultsTotal;
                             if (!downloadStateChanged && canUpdateRows
+                                    && hadMoreBefore == hasMoreNow
                                     && (previousResultCount == 0) == (searchResults.length() == 0))
                                 updateSearchRows();
                             else renderLivePage();
@@ -963,8 +980,38 @@ public final class MainActivity extends Activity {
                 });
             } catch (Exception failure) {
                 lastApiError = failure.getMessage();
+                handler.post(() -> {
+                    searchLoadingMore = false;
+                    updateSearchLoadMoreFooter();
+                    updateFooter(lastApiError);
+                });
             }
         }, "aMule-native-search-refresh").start();
+    }
+
+    private void loadMoreSearchResults() {
+        if (searchLoadingMore || activeSearchId == 0 || searchResults.length() >= searchResultsTotal) return;
+        int nextLimit = Math.min(searchResultsTotal, searchResults.length() + 100);
+        searchResultLimits.put(activeSearchId, nextLimit);
+        searchLoadingMore = true;
+        updateSearchLoadMoreFooter();
+        refreshSearch();
+    }
+
+    private String searchSummaryText() {
+        String count = String.format(java.util.Locale.getDefault(),
+                tr("Showing %1$d of %2$d results"), searchResults.length(), searchResultsTotal);
+        return activeSearchQuery + "  ·  " + searchState + "  ·  " + count;
+    }
+
+    private void updateSearchLoadMoreFooter() {
+        if (searchLoadMoreInfo == null || searchLoadMoreButton == null) return;
+        boolean hasMore = searchResults.length() < searchResultsTotal;
+        searchLoadMoreInfo.setText(String.format(java.util.Locale.getDefault(),
+                tr("Showing %1$d of %2$d results"), searchResults.length(), searchResultsTotal));
+        searchLoadMoreButton.setText(searchLoadingMore ? tr("Loading…") : tr("Load more results"));
+        searchLoadMoreButton.setEnabled(hasMore && !searchLoadingMore);
+        if (listFooter != null && selectedPage.equals("Search")) listFooter.setVisibility(hasMore ? View.VISIBLE : View.GONE);
     }
 
     private static boolean sameSearchTabs(JSONArray before, JSONArray after) {
@@ -986,8 +1033,8 @@ public final class MainActivity extends Activity {
             return;
         }
         listAdapter.updateRows(visible);
-        if (searchSummary != null) searchSummary.setText(activeSearchQuery + "  ·  " + searchState
-                + "  ·  " + searchResults.length() + " results");
+        if (searchSummary != null) searchSummary.setText(searchSummaryText());
+        updateSearchLoadMoreFooter();
         for (int i = 0; i < openSearches.length(); i++) {
             JSONObject item = openSearches.optJSONObject(i);
             if (item == null) continue;
@@ -1027,6 +1074,9 @@ public final class MainActivity extends Activity {
                     activeSearchQuery = clean;
                     searchState = "running";
                     searchResults = new JSONArray();
+                    searchResultsTotal = 0;
+                    searchResultLimits.put(id, 100);
+                    searchLoadingMore = false;
                     searchResultsLoaded = false;
                     renderCurrentPage();
                     refreshSearch();
@@ -1071,6 +1121,9 @@ public final class MainActivity extends Activity {
         if (id == 0 || id == activeSearchId) { refreshSearch(); return; }
         saveActiveSearchUiState();
         activeSearchId = id;
+        searchResultLimits.putIfAbsent(id, 100);
+        searchResultsTotal = 0;
+        searchLoadingMore = false;
         restoreSearchUiState(id);
         searchResults = new JSONArray();
         searchResultsLoaded = false;
@@ -1093,6 +1146,7 @@ public final class MainActivity extends Activity {
                 api.delete("search/" + id);
                 handler.post(() -> {
                     searchUiStates.remove(id);
+                    searchResultLimits.remove(id);
                     if (activeSearchId == id) activeSearchId = 0;
                     refreshSearch();
                 });
@@ -1116,6 +1170,9 @@ public final class MainActivity extends Activity {
                     activeSearchQuery = name;
                     searchState = "running";
                     searchResults = new JSONArray();
+                    searchResultsTotal = 0;
+                    searchResultLimits.put(id, 100);
+                    searchLoadingMore = false;
                     searchResultsLoaded = false;
                     searchKadActive = false;
                     setSelectedPage("Search");
@@ -1399,6 +1456,8 @@ public final class MainActivity extends Activity {
         listRows = null;
         listFooter = null;
         searchSummary = null;
+        searchLoadMoreInfo = null;
+        searchLoadMoreButton = null;
         addSelectedSearchButton = null;
         relatedSearchButton = null;
         searchTabButtons.clear();
@@ -1922,16 +1981,22 @@ public final class MainActivity extends Activity {
         int boundedPercent = Math.max(0, Math.min(100, percent));
         if (binding.progress.getProgress() != boundedPercent) binding.progress.setProgress(boundedPercent);
         String status = download.optString("status", "");
+        boolean isCompleted = status.equals("completed");
         boolean canResume = status.equals("paused") || status.equals("stopped");
         String toggleLabel = tr(canResume ? "Resume" : "Pause");
         if (!binding.toggle.getText().toString().equals(toggleLabel)) binding.toggle.setText(toggleLabel);
+        binding.toggle.setVisibility(isCompleted ? View.GONE : View.VISIBLE);
         binding.toggle.setOnClickListener(view -> mutate("PATCH", "downloads/" + hash,
                 json("action", canResume ? "resume" : "pause"), "Download updated"));
-        binding.remove.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(tr("Cancel download?"))
-                .setMessage(name)
-                .setNegativeButton(tr("Keep"), null)
-                .setPositiveButton(tr("Cancel download"), (dialog, which) -> mutate("DELETE", "downloads/" + hash, null, "Download cancelled"))
-                .show());
+        binding.remove.setText(tr(isCompleted ? "Delete" : "Cancel"));
+        binding.remove.setOnClickListener(view -> {
+            if (isCompleted) confirmDeleteCompletedDownload(download);
+            else new AlertDialog.Builder(this).setTitle(tr("Cancel download?"))
+                    .setMessage(name)
+                    .setNegativeButton(tr("Keep"), null)
+                    .setPositiveButton(tr("Cancel download"), (dialog, which) -> mutate("DELETE", "downloads/" + hash, null, "Download cancelled"))
+                    .show();
+        });
         binding.priority.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(tr("Download priority"))
                 .setItems(localizedOptions(new String[] {"Automatic", "Low", "Normal", "High"}), (dialog, choice) -> {
                     String[] values = {"auto", "low", "normal", "high"};
@@ -1976,17 +2041,22 @@ public final class MainActivity extends Activity {
         row.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)));
         LinearLayout actions = horizontal();
         String currentStatus = download.optString("status", "");
+        boolean isCompleted = currentStatus.equals("completed");
         boolean canResume = currentStatus.equals("paused") || currentStatus.equals("stopped");
         Button toggle = button(canResume ? "Resume" : "Pause", false);
+        toggle.setVisibility(isCompleted ? View.GONE : View.VISIBLE);
         toggle.setOnClickListener(view -> mutate("PATCH", "downloads/" + download.optString("hash"),
                 json("action", canResume ? "resume" : "pause"), "Download updated"));
         actions.addView(toggle, new LinearLayout.LayoutParams(0, dp(42), 1));
-        Button remove = button("Cancel", false);
-        remove.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle(tr("Cancel download?"))
-                .setMessage(download.optString("name"))
-                .setNegativeButton(tr("Keep"), null)
-                .setPositiveButton(tr("Cancel download"), (dialog, which) -> mutate("DELETE", "downloads/" + download.optString("hash"), null, "Download cancelled"))
-                .show());
+        Button remove = button(isCompleted ? "Delete" : "Cancel", false);
+        remove.setOnClickListener(view -> {
+            if (isCompleted) confirmDeleteCompletedDownload(download);
+            else new AlertDialog.Builder(this).setTitle(tr("Cancel download?"))
+                    .setMessage(download.optString("name"))
+                    .setNegativeButton(tr("Keep"), null)
+                    .setPositiveButton(tr("Cancel download"), (dialog, which) -> mutate("DELETE", "downloads/" + download.optString("hash"), null, "Download cancelled"))
+                    .show();
+        });
         actions.addView(remove, new LinearLayout.LayoutParams(0, dp(42), 1));
         row.addView(actions, marginParams(0, 6, 0, 0));
         LinearLayout organisation = horizontal();
@@ -2546,7 +2616,7 @@ public final class MainActivity extends Activity {
         }
 
         LinearLayout summary = card();
-        searchSummary = bodyText(activeSearchQuery + "  ·  " + searchState + "  ·  " + searchResults.length() + " results");
+        searchSummary = bodyText(searchSummaryText());
         summary.addView(searchSummary);
         LinearLayout actions = horizontal();
         Button update = button("Refresh", false);
@@ -2586,6 +2656,14 @@ public final class MainActivity extends Activity {
             none.addView(bodyText(searchResults.length() == 0 ? "No results yet. Search results can take a little while to arrive." : "No results match these filters."));
             pageContent.addView(none);
         }
+        LinearLayout loadMore = card();
+        searchLoadMoreInfo = bodyText("");
+        loadMore.addView(searchLoadMoreInfo);
+        searchLoadMoreButton = button("Load more results", false);
+        searchLoadMoreButton.setOnClickListener(view -> loadMoreSearchResults());
+        loadMore.addView(searchLoadMoreButton, marginParams(0, 8, 0, 0));
+        listFooter = loadMore;
+        updateSearchLoadMoreFooter();
     }
 
     private JSONArray filteredSearchResults() {
@@ -3236,7 +3314,20 @@ public final class MainActivity extends Activity {
                 .show();
     }
 
+    private void confirmDeleteCompletedDownload(JSONObject download) {
+        String name = download.optString("name", "");
+        new AlertDialog.Builder(this).setTitle(tr("Delete completed file?"))
+                .setMessage(tr("This permanently deletes the file from Downloads/aMule/Complete and removes it from Shared. This cannot be undone.") + "\n\n" + name)
+                .setNegativeButton(tr("Cancel"), null)
+                .setPositiveButton(tr("Delete"), (dialog, which) -> deleteCompletedSharedFile(name, download.optString("hash", "")))
+                .show();
+    }
+
     private void deleteCompletedSharedFile(String name) {
+        deleteCompletedSharedFile(name, "");
+    }
+
+    private void deleteCompletedSharedFile(String name, String downloadHash) {
         new Thread(() -> {
             try {
                 Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
@@ -3255,9 +3346,21 @@ public final class MainActivity extends Activity {
                 if (getContentResolver().delete(target, null, null) != 1) {
                     throw new IllegalStateException("Android did not delete the completed file");
                 }
+                String queueError = "";
+                if (!downloadHash.isEmpty()) {
+                    try {
+                        api.post("downloads_clear_completed", new JSONObject().put("hash", downloadHash));
+                    } catch (Exception error) {
+                        queueError = error.getMessage();
+                    }
+                }
+                try { api.post("shared_reload", new JSONObject()); } catch (Exception ignored) { }
+                final String resultMessage = queueError.isEmpty()
+                        ? "Completed file deleted"
+                        : "File deleted, but could not clear its completed download entry: " + queueError;
                 handler.post(() -> {
-                    nativeToast("Completed file deleted", Toast.LENGTH_SHORT).show();
-                    mutate("POST", "shared_reload", new JSONObject(), "Shared file scan started");
+                    nativeToast(resultMessage, Toast.LENGTH_SHORT).show();
+                    refreshSnapshot();
                 });
             } catch (Exception error) {
                 handler.post(() -> nativeToast("Could not delete completed file: " + error.getMessage(), Toast.LENGTH_LONG).show());
