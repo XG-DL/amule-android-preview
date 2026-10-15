@@ -102,6 +102,75 @@ final class NativeApiClient {
         return new JSONObject(response);
     }
 
+    String getText(String path) throws IOException {
+        return requestText(path, "GET", null);
+    }
+
+    void postText(String path, String body) throws IOException {
+        requestText(path, "POST", body);
+    }
+
+    byte[] getBytes(String path) throws IOException {
+        return requestBytes(path, "GET", null);
+    }
+
+    void postBytes(String path, byte[] body) throws IOException {
+        requestBytes(path, "POST", body);
+    }
+
+    private byte[] requestBytes(String path, String method, byte[] body) throws IOException {
+        if (cookie == null) throw new IOException("The local aMule API session has not been opened");
+        HttpURLConnection connection = open(path, method);
+        connection.setReadTimeout(60000);
+        connection.setRequestProperty("Cookie", cookie);
+        try {
+            if (body != null) {
+                connection.setDoOutput(true);
+                connection.setRequestProperty("Content-Type", "application/octet-stream");
+                connection.setFixedLengthStreamingMode(body.length);
+                try (java.io.OutputStream output = connection.getOutputStream()) { output.write(body); }
+            }
+            int status = connection.getResponseCode();
+            rememberCookie(connection.getHeaderField("Set-Cookie"));
+            InputStream responseStream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            ByteArrayOutputStream response = new ByteArrayOutputStream();
+            if (responseStream != null) {
+                try (InputStream input = responseStream) {
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) response.write(buffer, 0, count);
+                }
+            }
+            if (status < 200 || status >= 300) {
+                throw new IOException("Local aMule API request failed (HTTP " + status + ")" +
+                        errorDetail(new String(response.toByteArray(), StandardCharsets.UTF_8)));
+            }
+            return response.toByteArray();
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private String requestText(String path, String method, String body) throws IOException {
+        if (cookie == null) throw new IOException("The local aMule API session has not been opened");
+        HttpURLConnection connection = open(path, method);
+        connection.setReadTimeout(60000);
+        connection.setRequestProperty("Cookie", cookie);
+        if (body != null) {
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
+        }
+        int status = connection.getResponseCode();
+        rememberCookie(connection.getHeaderField("Set-Cookie"));
+        String response = readResponse(connection, status);
+        connection.disconnect();
+        if (status < 200 || status >= 300) {
+            throw new IOException("Local aMule API request failed (HTTP " + status + ")" + errorDetail(response));
+        }
+        return response;
+    }
+
     JSONObject post(String path, JSONObject body) throws IOException, JSONException {
         return send(path, "POST", body);
     }

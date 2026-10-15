@@ -287,4 +287,19 @@ index 9d4a81078..00b11fd44 100644
 -  const y1 = h - GUTTER_BOTTOM;
    const sx = (i) => x0 + (n < 2 ? 0 : (i / (n - 1)) * (x1 - x0));
    const sy = (v) => y1 - (v / yMax) * (y1 - y0);
+
+diff --git a/src/SearchList.cpp b/src/SearchList.cpp
+index c10235db5..143d5ab8c 100644
+--- a/src/SearchList.cpp
++++ b/src/SearchList.cpp
+@@ -345,4 +345,10 @@ void CSearchList::RemoveResults(wxUIntPtr searchID)
+ 	}
  
+ 	// removed owns the detached results until all notifications have returned.
++	// Persist the new set now as well as at shutdown. Android can restart the
++	// daemon after the UI closes a search; without this write, StoredSearches.met
++	// still contains the pre-close snapshot and LoadSearches() resurrects the tab.
++	if (!m_shuttingDown) {
++		StoreSearches();
++	}
+ }

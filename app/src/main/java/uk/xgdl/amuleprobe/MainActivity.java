@@ -8,6 +8,7 @@ import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.provider.DocumentsContract;
 import android.graphics.Color;
 import android.graphics.Canvas;
 import android.graphics.Insets;
@@ -79,6 +80,8 @@ public final class MainActivity extends Activity {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 1;
     private static final int EXPORT_CONFIG_REQUEST = 2;
     private static final int IMPORT_CONFIG_REQUEST = 3;
+    private static final int EXPORT_HISTORY_REQUEST = 4;
+    private static final int IMPORT_HISTORY_REQUEST = 5;
     private static final long MAX_CONFIG_ARCHIVE_BYTES = 512L * 1024L * 1024L;
     private static final int MAX_RECENT_SEARCHES = 10;
     private int INK;
@@ -172,6 +175,13 @@ public final class MainActivity extends Activity {
     private String searchResultFilter = "";
     private String searchResultHave = "All";
     private String searchResultSort = "Sources";
+    private boolean searchResultSortDescending = true;
+    private int searchFilterDebounceSearchId;
+    private final Runnable applySearchResultFilter = new Runnable() {
+        @Override public void run() {
+            if (selectedPage.equals("Search") && activeSearchId == searchFilterDebounceSearchId) updateSearchRows();
+        }
+    };
     private final Set<String> hiddenSearchFields = new HashSet<>();
     private EditText searchInput;
     private Spinner searchType;
@@ -213,6 +223,7 @@ public final class MainActivity extends Activity {
         String filter = "";
         String have = "All";
         String sort = "Sources";
+        boolean sortDescending = true;
 
         SearchUiState() {
             hiddenFields.addAll(java.util.Arrays.asList("directory", "length", "bitrate", "codec", "artist", "album", "title"));
@@ -231,6 +242,7 @@ public final class MainActivity extends Activity {
         state.filter = searchResultFilter;
         state.have = searchResultHave;
         state.sort = searchResultSort;
+        state.sortDescending = searchResultSortDescending;
         state.hiddenFields.clear();
         state.hiddenFields.addAll(hiddenSearchFields);
     }
@@ -242,6 +254,7 @@ public final class MainActivity extends Activity {
         searchResultFilter = state.filter;
         searchResultHave = state.have;
         searchResultSort = state.sort;
+        searchResultSortDescending = state.sortDescending;
         hiddenSearchFields.clear();
         hiddenSearchFields.addAll(state.hiddenFields);
     }
@@ -320,7 +333,167 @@ public final class MainActivity extends Activity {
                     .setNegativeButton(tr("Cancel"), null)
                     .setPositiveButton(tr("Import"), (dialog, which) -> runConfigTransfer(uri, false))
                     .show();
+        } else if (requestCode == EXPORT_HISTORY_REQUEST) {
+            transferCompletedHistory(uri, true, true);
+        } else if (requestCode == IMPORT_HISTORY_REQUEST) {
+            chooseHistoryImportMode(uri);
         }
+    }
+
+    private void createHistoryDocument() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        intent.putExtra(Intent.EXTRA_TITLE, "amule-completed-history.json");
+        startActivityForResult(intent, EXPORT_HISTORY_REQUEST);
+    }
+
+    private void chooseHistoryDocument() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        startActivityForResult(intent, IMPORT_HISTORY_REQUEST);
+    }
+
+    private void chooseHistoryImportMode(Uri uri) {
+        new AlertDialog.Builder(this)
+                .setTitle("Import completed-download history")
+                .setMessage(tr("Imported entries older than this device's retention period will be removed immediately."))
+                .setItems(new String[] {"Merge with this device", "Replace this device's history"},
+                        (dialog, which) -> transferCompletedHistory(uri, false, which == 0))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private byte[] getHistoryChunk(String path) throws IOException {
+        try { return api.getBytes(path); }
+        catch (IOException firstError) {
+            if (!isRetryableHistoryFailure(firstError)) throw firstError;
+            return api.getBytes(path);
+        }
+    }
+
+    private void postHistoryChunk(String path, byte[] bytes) throws IOException {
+        try { api.postBytes(path, bytes); }
+        catch (IOException firstError) {
+            if (!isRetryableHistoryFailure(firstError)) throw firstError;
+            api.postBytes(path, bytes);
+        }
+    }
+
+    private boolean isRetryableHistoryFailure(IOException error) {
+        String message = error.getMessage();
+        if (message == null || !message.contains("(HTTP ")) return true;
+        return message.contains("(HTTP 500") || message.contains("(HTTP 501") ||
+                message.contains("(HTTP 502") || message.contains("(HTTP 503") ||
+                message.contains("(HTTP 504") || message.contains("(HTTP 505");
+    }
+
+    private void transferCompletedHistory(Uri uri, boolean export, boolean merge) {
+        nativeToast(export ? "Exporting completed-download history…" : "Importing completed-download history…", Toast.LENGTH_LONG).show();
+        new Thread(() -> {
+            Exception failure = null;
+            File staged = null;
+            String transferId = null;
+            try {
+                if (api == null) throw new IOException("The local aMule API is not connected");
+                final int chunkBytes = 512 * 1024;
+                if (export) {
+                    JSONObject transfer = api.post("completed_download_history/export/start", new JSONObject());
+                    transferId = transfer.getString("transfer_id");
+                    long total = transfer.getLong("total_bytes");
+                    if (total < 1 || total > 64L * 1024L * 1024L || transfer.getInt("chunk_bytes") != chunkBytes)
+                        throw new IOException("Invalid history export metadata or 64 MiB / 700,000-record transfer limit exceeded");
+                    staged = File.createTempFile("amule-history-export-", ".json", getCacheDir());
+                    try (OutputStream output = new FileOutputStream(staged)) {
+                        for (long offset = 0; offset < total;) {
+                            byte[] chunk = getHistoryChunk("completed_download_history/export/chunk/" + transferId + "?offset=" + offset);
+                            int expected = (int) Math.min(chunkBytes, total - offset);
+                            if (chunk.length != expected)
+                                throw new IOException("Invalid history export chunk");
+                            output.write(chunk);
+                            offset += chunk.length;
+                        }
+                    }
+                    try (InputStream input = new FileInputStream(staged);
+                         OutputStream output = getContentResolver().openOutputStream(uri)) {
+                        if (output == null) throw new IOException("Could not open the selected export file");
+                        byte[] buffer = new byte[chunkBytes];
+                        int count;
+                        long copied = 0;
+                        while ((count = input.read(buffer)) != -1) {
+                            output.write(buffer, 0, count);
+                            copied += count;
+                        }
+                        if (copied != total) throw new IOException("History export file was incomplete");
+                    }
+                    try { api.post("completed_download_history/export/complete?transfer_id=" + transferId, new JSONObject()); }
+                    catch (Exception completeError) {
+                        try { api.post("completed_download_history/transfer/cancel?transfer_id=" + transferId, new JSONObject()); }
+                        catch (Exception ignored) { }
+                    }
+                    transferId = null;
+                } else {
+                    staged = File.createTempFile("amule-history-", ".json", getCacheDir());
+                    long total = 0;
+                    try (InputStream input = getContentResolver().openInputStream(uri);
+                         OutputStream copy = new FileOutputStream(staged)) {
+                        if (input == null) throw new IOException("Could not open the selected history file");
+                        byte[] buffer = new byte[chunkBytes];
+                        int count;
+                        while ((count = input.read(buffer)) != -1) {
+                            total += count;
+                            if (total > 64L * 1024L * 1024L) throw new IOException("History file exceeds the 64 MiB transfer limit");
+                            copy.write(buffer, 0, count);
+                        }
+                    }
+                    if (total == 0) throw new IOException("History file is empty");
+                    JSONObject transfer = api.post("completed_download_history/import/start?mode=" +
+                            (merge ? "merge" : "replace") + "&total_bytes=" + total, new JSONObject());
+                    transferId = transfer.getString("transfer_id");
+                    if (transfer.getLong("total_bytes") != total || transfer.getInt("chunk_bytes") != chunkBytes)
+                        throw new IOException("Invalid history import metadata");
+                    try (InputStream input = new FileInputStream(staged)) {
+                        long offset = 0;
+                        byte[] buffer = new byte[chunkBytes];
+                        while (offset < total) {
+                            int wanted = (int) Math.min(buffer.length, total - offset);
+                            int count = 0;
+                            while (count < wanted) {
+                                int read = input.read(buffer, count, wanted - count);
+                                if (read < 0) throw new IOException("History file changed while it was being uploaded");
+                                count += read;
+                            }
+                            byte[] chunk = count == buffer.length ? buffer.clone() : java.util.Arrays.copyOf(buffer, count);
+                            postHistoryChunk("completed_download_history/import/chunk/" + transferId + "?offset=" + offset, chunk);
+                            offset += count;
+                        }
+                    }
+                    String commitPath = "completed_download_history/import/commit?transfer_id=" + transferId;
+                    try { api.post(commitPath, new JSONObject()); }
+                    catch (Exception firstError) {
+                        if (!(firstError instanceof IOException) || !isRetryableHistoryFailure((IOException) firstError))
+                            throw firstError;
+                        api.post(commitPath, new JSONObject());
+                    }
+                    transferId = null;
+                }
+            } catch (Exception error) {
+                failure = error;
+                if (transferId != null && api != null) {
+                    try { api.post("completed_download_history/transfer/cancel?transfer_id=" + transferId, new JSONObject()); }
+                    catch (Exception ignored) { }
+                }
+                if (export && uri != null) {
+                    try { DocumentsContract.deleteDocument(getContentResolver(), uri); }
+                    catch (Exception ignored) { }
+                }
+            } finally { if (staged != null) staged.delete(); }
+            final Exception result = failure;
+            handler.post(() -> nativeToast(result == null
+                    ? (export ? "History exported." : merge ? "History merged." : "History replaced.")
+                    : "History transfer failed: " + result.getMessage(), Toast.LENGTH_LONG).show());
+        }, "aMule-history-transfer").start();
     }
 
     private void createConfigArchive() {
@@ -1151,7 +1324,17 @@ public final class MainActivity extends Activity {
                     refreshSearch();
                 });
             } catch (Exception failure) {
-                handler.post(() -> nativeToast( "Could not close search: " + failure.getMessage(), Toast.LENGTH_LONG).show());
+                String message = failure.getMessage();
+                if (message != null && message.contains("404")) {
+                    handler.post(() -> {
+                        searchUiStates.remove(id);
+                        searchResultLimits.remove(id);
+                        if (activeSearchId == id) activeSearchId = 0;
+                        refreshSearch();
+                    });
+                    return;
+                }
+                handler.post(() -> nativeToast("Could not close search: " + message, Toast.LENGTH_LONG).show());
             }
         }, "aMule-native-search-close").start();
     }
@@ -1292,13 +1475,6 @@ public final class MainActivity extends Activity {
         pageTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         toolbar.addView(pageTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-        TextView refresh = new TextView(this);
-        refresh.setText(tr("↻"));
-        refresh.setTextSize(28);
-        refresh.setTextColor(INK);
-        refresh.setGravity(Gravity.CENTER);
-        toolbar.addView(refresh, new LinearLayout.LayoutParams(dp(44), dp(48)));
-        refresh.setOnClickListener(view -> refreshSnapshot());
         root.addView(toolbar);
 
         ScrollView scroll = new ScrollView(this);
@@ -2582,6 +2758,9 @@ public final class MainActivity extends Activity {
 
         if (openSearches.length() > 0) {
             LinearLayout tabsCard = card();
+            TextView openSearchesHeading = bodyText("Open searches");
+            openSearchesHeading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            tabsCard.addView(openSearchesHeading, marginParams(0, 0, 0, 6));
             LinearLayout tabs = horizontal();
             for (int i = 0; i < openSearches.length(); i++) {
                 JSONObject item = openSearches.optJSONObject(i);
@@ -2690,7 +2869,8 @@ public final class MainActivity extends Activity {
         else comparator = Comparator.<JSONObject>comparingInt(item -> {
             JSONObject sources = item.optJSONObject("sources");
             return sources == null ? item.optInt("source_count") : sources.optInt("total");
-        }).reversed();
+        });
+        if (searchResultSortDescending) comparator = comparator.reversed();
         visibleResults.sort(comparator);
         Set<String> visibleHashes = new HashSet<>();
         for (JSONObject item : visibleResults) visibleHashes.add(item.optString("hash", ""));
@@ -2733,11 +2913,16 @@ public final class MainActivity extends Activity {
         String resultStatus = result.optString("status", "").toLowerCase(java.util.Locale.ROOT);
         String hash = result.optString("hash", "");
         boolean currentlyCompleted = completedSearchHashes.contains(hash);
-        boolean previouslyDownloaded = resultStatus.equals("downloaded");
+        boolean previouslyDownloaded = result.has("completed_before")
+                ? result.optBoolean("completed_before") : resultStatus.equals("downloaded");
+        boolean availableLocally = result.optBoolean("available_locally");
+        boolean currentlyShared = result.optBoolean("currently_shared");
         boolean previouslyCanceled = resultStatus.equals("canceled");
         boolean alreadyQueued = resultStatus.equals("queued") || resultStatus.equals("queued_canceled");
         boolean isPaused = pausedSearchHashes.contains(hash);
-        String historyLabel = currentlyCompleted ? tr("Downloaded") : previouslyDownloaded ? tr("Previously downloaded")
+        String historyLabel = currentlyCompleted ? tr("Downloaded")
+                : availableLocally ? (currentlyShared ? tr("Shared now") : tr("Available locally"))
+                : previouslyDownloaded ? tr("Previously downloaded")
                 : isPaused ? tr("Paused")
                 : previouslyCanceled ? tr("Previously canceled") : "";
         binding.historyMarker.setText(currentlyCompleted || previouslyDownloaded ? "✓" : isPaused ? "Ⅱ" : previouslyCanceled ? "×" : "");
@@ -2870,31 +3055,84 @@ public final class MainActivity extends Activity {
 
     private void addSearchResultTools() {
         LinearLayout tools = card();
+        TextView heading = bodyText("Filter and sort results");
+        heading.setTypeface(null, android.graphics.Typeface.BOLD);
+        tools.addView(heading, marginParams(0, 0, 0, 6));
+        TextView filterLabel = bodyText("Name contains");
+        filterLabel.setTypeface(null, android.graphics.Typeface.BOLD);
+        tools.addView(filterLabel, marginParams(0, 0, 0, 2));
         LinearLayout filterRow = horizontal();
         EditText filter = new EditText(this);
         filter.setSingleLine(true);
-        filter.setHint(tr("Filter result names"));
+        filter.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        filter.setHint("");
+        filter.setOnEditorActionListener((view, actionId, event) -> {
+            boolean enterPressed = event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER;
+            if (actionId != EditorInfo.IME_ACTION_DONE && !enterPressed) return false;
+            InputMethodManager keyboard = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(filter.getWindowToken(), 0);
+            return true;
+        });
         filter.setText(searchResultFilter);
         filter.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { searchResultFilter = s.toString(); saveActiveSearchUiState(); }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                searchResultFilter = s.toString();
+                searchFilterDebounceSearchId = activeSearchId;
+                saveActiveSearchUiState();
+                handler.removeCallbacks(applySearchResultFilter);
+                handler.postDelayed(applySearchResultFilter, 250);
+            }
             @Override public void afterTextChanged(Editable s) { }
         });
         filterRow.addView(filter, new LinearLayout.LayoutParams(0, dp(52), 1));
-        Button apply = button("Apply", false);
-        apply.setOnClickListener(view -> renderCurrentPage());
-        filterRow.addView(apply);
         tools.addView(filterRow);
         LinearLayout optionRow = horizontal();
         Spinner sort = spinner(new String[] {"Sources", "Name", "Size", "Rating", "Type", "Status"}, searchResultSort);
         sort.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
                 String next = (String) parent.getItemAtPosition(position);
-                if (!searchResultSort.equals(next)) { searchResultSort = next; saveActiveSearchUiState(); renderCurrentPage(); }
+                if (!searchResultSort.equals(next)) {
+                    searchResultSort = next;
+                    searchResultSortDescending = next.equals("Sources");
+                    saveActiveSearchUiState();
+                    renderCurrentPage();
+                }
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
         });
         optionRow.addView(sort, new LinearLayout.LayoutParams(0, dp(48), 1));
+        LinearLayout direction = horizontal();
+        direction.setGravity(Gravity.CENTER);
+        direction.setPadding(dp(5), 0, dp(5), 0);
+        GradientDrawable directionBackground = new GradientDrawable();
+        directionBackground.setColor(BLUE);
+        directionBackground.setCornerRadius(dp(8));
+        direction.setBackground(directionBackground);
+        direction.setClickable(true);
+        direction.setFocusable(true);
+        TextView directionArrow = new TextView(this);
+        directionArrow.setText(searchResultSortDescending ? "↓" : "↑");
+        directionArrow.setTextSize(28);
+        directionArrow.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        directionArrow.setTextColor(darkMode ? Color.rgb(20, 29, 41) : Color.WHITE);
+        direction.addView(directionArrow);
+        TextView directionLabel = new TextView(this);
+        directionLabel.setText(tr(searchResultSortDescending ? "Descending" : "Ascending"));
+        directionLabel.setTextSize(11);
+        directionLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        directionLabel.setTextColor(darkMode ? Color.rgb(20, 29, 41) : Color.WHITE);
+        direction.addView(directionLabel);
+        direction.setContentDescription(tr(searchResultSortDescending ? "Sort descending" : "Sort ascending"));
+        direction.setOnClickListener(view -> {
+            searchResultSortDescending = !searchResultSortDescending;
+            directionArrow.setText(searchResultSortDescending ? "↓" : "↑");
+            directionLabel.setText(tr(searchResultSortDescending ? "Descending" : "Ascending"));
+            direction.setContentDescription(tr(searchResultSortDescending ? "Sort descending" : "Sort ascending"));
+            saveActiveSearchUiState();
+            updateSearchRows();
+        });
+        optionRow.addView(direction, new LinearLayout.LayoutParams(dp(108), dp(48)));
         Spinner have = spinner(new String[] {"All", "Not in downloads", "Have"}, searchResultHave);
         have.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
@@ -2908,14 +3146,18 @@ public final class MainActivity extends Activity {
         Button fields = button("Choose result details", false);
         fields.setOnClickListener(view -> showSearchResultFields());
         tools.addView(fields, marginParams(0, 4, 0, 0));
-        Button addSelected = button("Add selected to downloads  ·  " + selectedSearchHashes.size(), false);
+        LinearLayout selectedActions = horizontal();
+        Button addSelected = button("Download selected  ·  " + selectedSearchHashes.size(), false);
         addSelectedSearchButton = addSelected;
         addSelected.setOnClickListener(view -> addSelectedSearchResults());
-        tools.addView(addSelected, marginParams(0, 4, 0, 0));
-        Button related = button("Search for related files  ·  " + selectedSearchHashes.size(), false);
+        selectedActions.addView(addSelected, new LinearLayout.LayoutParams(0, dp(48), 1));
+        Button related = button("Related search  ·  " + selectedSearchHashes.size(), false);
         relatedSearchButton = related;
         related.setOnClickListener(view -> startRelatedSearch());
-        tools.addView(related, marginParams(0, 4, 0, 0));
+        LinearLayout.LayoutParams relatedParams = new LinearLayout.LayoutParams(0, dp(48), 1);
+        relatedParams.setMarginStart(dp(6));
+        selectedActions.addView(related, relatedParams);
+        tools.addView(selectedActions, marginParams(0, 4, 0, 0));
         updateSearchSelectionActions();
         pageContent.addView(tools, marginParams(0, 0, 0, 10));
     }
@@ -2923,11 +3165,11 @@ public final class MainActivity extends Activity {
     private void updateSearchSelectionActions() {
         int count = selectedSearchHashes.size();
         if (addSelectedSearchButton != null) {
-            addSelectedSearchButton.setText(tr("Add selected to downloads  ·  " + count));
+            addSelectedSearchButton.setText(tr("Download selected  ·  " + count));
             addSelectedSearchButton.setEnabled(count > 0);
         }
         if (relatedSearchButton != null) {
-            relatedSearchButton.setText(tr("Search for related files  ·  " + count));
+            relatedSearchButton.setText(tr("Related search  ·  " + count));
             relatedSearchButton.setEnabled(count > 0);
         }
         if (searchBulkDownloadButton != null) {
@@ -3847,6 +4089,12 @@ public final class MainActivity extends Activity {
         Button importConfig = button("Import configuration", false);
         importConfig.setOnClickListener(view -> chooseConfigArchive());
         group.addView(importConfig, marginParams(0, 4, 0, 0));
+        Button exportHistory = button("Export completed-download history", false);
+        exportHistory.setOnClickListener(view -> createHistoryDocument());
+        group.addView(exportHistory, marginParams(0, 10, 0, 0));
+        Button importHistory = button("Import completed-download history", false);
+        importHistory.setOnClickListener(view -> chooseHistoryDocument());
+        group.addView(importHistory, marginParams(0, 4, 0, 0));
         pageContent.addView(group, marginParams(0, 0, 0, 10));
     }
 
@@ -4813,6 +5061,7 @@ public final class MainActivity extends Activity {
         outState.putString("native_search_filter", searchResultFilter);
         outState.putString("native_search_have", searchResultHave);
         outState.putString("native_search_sort", searchResultSort);
+        outState.putBoolean("native_search_sort_descending", searchResultSortDescending);
         saveSet(outState, "native_search_hidden", hiddenSearchFields);
         Bundle searches = new Bundle();
         for (Map.Entry<Integer, SearchUiState> entry : searchUiStates.entrySet()) {
@@ -4821,6 +5070,7 @@ public final class MainActivity extends Activity {
             saved.putString("filter", search.filter);
             saved.putString("have", search.have);
             saved.putString("sort", search.sort);
+            saved.putBoolean("sort_descending", search.sortDescending);
             saveSet(saved, "selected", search.selectedHashes);
             saveSet(saved, "hidden", search.hiddenFields);
             searches.putBundle(String.valueOf(entry.getKey()), saved);
@@ -4868,6 +5118,7 @@ public final class MainActivity extends Activity {
         searchResultFilter = state.getString("native_search_filter", searchResultFilter);
         searchResultHave = state.getString("native_search_have", searchResultHave);
         searchResultSort = state.getString("native_search_sort", searchResultSort);
+        searchResultSortDescending = state.getBoolean("native_search_sort_descending", searchResultSortDescending);
         restoreSet(state, "native_search_hidden", hiddenSearchFields);
         Bundle searches = state.getBundle("native_search_states");
         if (searches != null) {
@@ -4879,6 +5130,7 @@ public final class MainActivity extends Activity {
                 search.filter = saved.getString("filter", search.filter);
                 search.have = saved.getString("have", search.have);
                 search.sort = saved.getString("sort", search.sort);
+                search.sortDescending = saved.getBoolean("sort_descending", search.sortDescending);
                 restoreSet(saved, "selected", search.selectedHashes);
                 restoreSet(saved, "hidden", search.hiddenFields);
             }

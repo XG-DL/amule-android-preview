@@ -58,5 +58,5 @@ The identifiers below describe the executables currently included in the APK. A 
 
 | File | ELF Build ID | SHA-256 |
 |---|---|---|
-| `libamuled.so` | `7139e0d9ea0884319069323eb2257026097d22d1` | `dc4d38d809c00e37863554247f9c75b8e9a5c00e170ffd6fc9d01727d1fb3e78` |
-| `libamuleapi.so` | `239c54296300d2b5cf22fdfbb795cc4014c52511` | `80b4efdf847f1662ea3ce5f4df9714c60522cd8dfe7d7771fafe15519c26ae93` |
+| `libamuled.so` | `671ecc91f8149690e6f5ea3d058bf43a6c937c06` | `6a29bb83bf4375443386d1eef79b9a7e548975c6cd1e4b4d676b77c5eac8b05b` |
+| `libamuleapi.so` | `a2eb0a518fb0d789dac769eb3af63561ab734dc1` | `c80ac1f6eb0bbed54dde0eac9facb9639852be7eb9c905cccf56ada951f8420d` |
